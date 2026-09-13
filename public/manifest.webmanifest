@@ -1,0 +1,21 @@
+{
+  "name": "Looply",
+  "short_name": "Looply",
+  "start_url": "/looply/",
+  "scope": "/looply/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/looply/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/looply/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+/* Design tokens — Apple design system (Action Blue, near-black ink, parchment)
+   combined with iOS 26 HIG dark-mode conventions. */
+
+:root {
+  color-scheme: light dark;
+
+  --color-accent: #0066cc;
+  --color-accent-focus: #0071e3;
+  --color-ink: #1d1d1f;
+  --color-ink-secondary: rgba(60, 60, 67, 0.6);
+  --color-bg: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-hairline: rgba(0, 0, 0, 0.08);
+  --color-track: rgba(118, 118, 128, 0.12);
+  --color-danger: #ff3b30;
+  --color-sheet-bg: rgba(255, 255, 255, 0.72);
+
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --radius-pill: 999px;
+  --radius-card: 18px;
+  --radius-group: 10px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-accent: #0a84ff;
+    --color-accent-focus: #0a84ff;
+    --color-ink: #ffffff;
+    --color-ink-secondary: rgba(235, 235, 245, 0.6);
+    --color-bg: #000000;
+    --color-surface: #1c1c1e;
+    --color-hairline: rgba(255, 255, 255, 0.14);
+    --color-track: rgba(118, 118, 128, 0.24);
+    --color-sheet-bg: rgba(28, 28, 30, 0.72);
+  }
+}
