@@ -197,6 +197,7 @@ async function handleSearch() {
       distanceKm: state.distanceByMode[state.mode],
       mode: state.mode,
       provider,
+      count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
       onProgress: handleProgress,
     });
     state.routesStatus = 'ready';

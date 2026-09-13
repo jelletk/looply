@@ -267,7 +267,7 @@
 .route-card {
   scroll-snap-align: start;
   flex: 0 0 auto;
-  width: 168px;
+  width: 180px;
   background: var(--color-surface);
   border: 0.5px solid var(--color-hairline);
   border-radius: var(--radius-card);
@@ -290,6 +290,14 @@
   height: 64px;
   align-self: center;
   color: var(--color-accent);
+}
+
+.route-card__name,
+.route-card__meta {
+  /* Keep cards the same height whatever the distance; long labels get an ellipsis. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .route-card__name {
