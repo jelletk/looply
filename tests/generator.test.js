@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateRoutes, buildLoopWaypoints, compassLabel } from '../src/core/generator.js';
+import { generateRoutes, buildLoopWaypoints, compassLabel, defaultToleranceKm } from '../src/core/generator.js';
 import { createMockProvider } from '../src/core/providers/mock.js';
-import { haversineKm, pathLengthKm, routeOverlap } from '../src/core/geo.js';
+import { haversineKm, pathLengthKm, routeOverlap, selfOverlapFraction, findSpurs } from '../src/core/geo.js';
 
 const start = { lat: 52.0907, lng: 5.1214 };
 
@@ -73,8 +73,16 @@ describe('buildLoopWaypoints', () => {
   });
 });
 
+describe('defaultToleranceKm', () => {
+  it('is ±0.3 km for walk/run and ±1.0 km for bike', () => {
+    expect(defaultToleranceKm('walk')).toBe(0.3);
+    expect(defaultToleranceKm('run')).toBe(0.3);
+    expect(defaultToleranceKm('bike')).toBe(1.0);
+  });
+});
+
 describe('generateRoutes with the mock provider', () => {
-  it('returns ≥5 routes within tolerance for a 5 km walk, sorted by closeness', async () => {
+  it('returns ≥5 routes within ±0.3 km for a 5 km walk, sorted by closeness', async () => {
     const provider = createMockProvider({ delayMs: 0, wobble: 0.15 });
     const routeSpy = vi.spyOn(provider, 'route');
     const progress = vi.fn();
@@ -90,7 +98,7 @@ describe('generateRoutes with the mock provider', () => {
 
     expect(routes.length).toBeGreaterThanOrEqual(5);
     for (const r of routes) {
-      expect(Math.abs(r.distanceKm - 5) / 5).toBeLessThanOrEqual(0.08);
+      expect(Math.abs(r.distanceKm - 5)).toBeLessThanOrEqual(0.3);
       expect(r.mode).toBe('walk');
       expect(r.start).toEqual(start);
       expect(r.waypoints.length).toBeGreaterThanOrEqual(2);
@@ -116,11 +124,44 @@ describe('generateRoutes with the mock provider', () => {
     expect(last.done).toBe(last.total);
   });
 
-  it('works for run and bike modes with matching duration estimates', async () => {
+  it('returns ≥5 bike routes within ±1.0 km for 30 km with matching duration estimates', async () => {
     const provider = createMockProvider({ delayMs: 0 });
     const bike = await generateRoutes({ start, distanceKm: 30, mode: 'bike', provider, rng: seeded(3) });
     expect(bike.length).toBeGreaterThanOrEqual(5);
+    for (const r of bike) expect(Math.abs(r.distanceKm - 30)).toBeLessThanOrEqual(1.0);
     expect(bike[0].durationMin).toBeCloseTo((bike[0].distanceKm / 18) * 60, 6);
+  });
+
+  it('applies an explicit toleranceKm over the mode default', async () => {
+    const provider = createMockProvider({ delayMs: 0 });
+    const routes = await generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, toleranceKm: 0.1, rng: seeded(4) });
+    expect(routes.length).toBeGreaterThan(0);
+    for (const r of routes) expect(Math.abs(r.distanceKm - 5)).toBeLessThanOrEqual(0.1);
+  });
+
+  it('repairs spurs: with spurEvery 3 every returned route is a clean loop', async () => {
+    const provider = createMockProvider({ delayMs: 0, spurEvery: 3 });
+    const routeSpy = vi.spyOn(provider, 'route');
+    const routes = await generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, rng: seeded(21) });
+    expect(routes.length).toBeGreaterThanOrEqual(5);
+    for (const r of routes) {
+      expect(Math.abs(r.distanceKm - 5)).toBeLessThanOrEqual(0.3);
+      expect(selfOverlapFraction(r.path)).toBeLessThanOrEqual(0.06);
+      expect(findSpurs(r.path).filter((s) => s.lengthKm >= 0.15)).toEqual([]);
+      expect(r.waypoints.length).toBeGreaterThanOrEqual(2);
+    }
+    // The spurred responses were actually seen and repaired (some paths contained a spur).
+    const spurred = await Promise.all(routeSpy.mock.results.map((res) => res.value));
+    expect(spurred.some((res) => findSpurs(res.path).length > 0)).toBe(true);
+  });
+
+  it('discards a candidate whose spur cannot be repaired', async () => {
+    // Every response is a 5 km out-and-back regardless of the waypoints.
+    const tip = { lat: start.lat + 0.0225, lng: start.lng };
+    const provider = { route: async () => ({ distanceKm: 5, path: [start, tip, start] }) };
+    await expect(generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, rng: seeded(6) })).rejects.toMatchObject({
+      code: 'NO_ROUTES',
+    });
   });
 
   it('dedupes near-identical routes', async () => {
@@ -189,17 +230,20 @@ describe('generateRoutes with the mock provider', () => {
     const progress = vi.fn();
     const routes = await generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, rng: seeded(11), onProgress: progress });
     expect(routes.length).toBeGreaterThanOrEqual(1);
-    expect(progress.mock.calls.at(-1)[0]).toEqual({ done: 12, total: 12 });
+    const last = progress.mock.calls.at(-1)[0];
+    expect(last.done).toBe(last.total);
+    expect(last.total).toBeGreaterThanOrEqual(12);
+    expect(last.total % 6).toBe(0);
   });
 
-  it('returns routes outside tolerance but within 1.5× when scaling cannot converge', async () => {
-    // Always report 10% over target: first attempt error 0.10 > 0.08 but < 0.12.
+  it('never returns a route outside the absolute tolerance', async () => {
+    // Always 0.5 km over target: outside ±0.3 km, so nothing may be returned.
     const provider = {
       route: async ({ start: s, waypoints }) => ({ distanceKm: 5.5, path: [s, ...waypoints, s] }),
     };
-    const routes = await generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, maxAttemptsPerRoute: 1, rng: seeded(2) });
-    expect(routes.length).toBeGreaterThan(0);
-    expect(routes[0].distanceKm).toBe(5.5);
+    await expect(
+      generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, maxAttemptsPerRoute: 1, rng: seeded(2) }),
+    ).rejects.toMatchObject({ code: 'NO_ROUTES' });
   });
 
   it('validates input', async () => {

@@ -2,6 +2,7 @@ import {
   createMockProvider,
   createGoogleProvider,
   generateRoutes,
+  defaultToleranceKm,
   googleMapsDirectionsUrl,
   listRoutes,
   saveRoute,
@@ -198,6 +199,7 @@ async function handleSearch() {
       mode: state.mode,
       provider,
       count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
+      toleranceKm: defaultToleranceKm(state.mode),
       onProgress: handleProgress,
     });
     state.routesStatus = 'ready';

@@ -6,6 +6,9 @@ import {
   bearingDeg,
   routeOverlap,
   normalizeBearing,
+  densifyPath,
+  selfOverlapFraction,
+  findSpurs,
 } from '../src/core/geo.js';
 
 const AMSTERDAM = { lat: 52.3676, lng: 4.9041 };
@@ -116,5 +119,87 @@ describe('routeOverlap', () => {
 
   it('handles empty paths', () => {
     expect(routeOverlap([], square(UTRECHT, 1))).toBe(0);
+  });
+});
+
+/** Straight line of points every `step` km from `from` along `bearing` (excluding `from`). */
+function line(from, bearing, km, step = 0.1) {
+  const out = [];
+  const steps = Math.round(km / step);
+  for (let s = 1; s <= steps; s++) out.push(destinationPoint(from, bearing, (km * s) / steps));
+  return out;
+}
+
+/** Closed square loop of `side` km per side, vertices every 100 m. */
+function squareLoop(side = 1.25) {
+  const path = [UTRECHT];
+  for (const b of [0, 90, 180, 270]) path.push(...line(path[path.length - 1], b, side));
+  path[path.length - 1] = UTRECHT;
+  return path;
+}
+
+describe('densifyPath', () => {
+  it('keeps vertices and caps the spacing', () => {
+    const path = [UTRECHT, destinationPoint(UTRECHT, 90, 1)];
+    const dense = densifyPath(path, 0.03);
+    expect(dense[0]).toEqual(UTRECHT);
+    expect(dense[dense.length - 1]).toEqual(path[1]);
+    for (let i = 1; i < dense.length; i++) expect(haversineKm(dense[i - 1], dense[i])).toBeLessThanOrEqual(0.03 + 1e-9);
+    expect(densifyPath([], 0.03)).toEqual([]);
+  });
+});
+
+describe('selfOverlapFraction', () => {
+  it('is ≈ 0 for a clean square loop', () => {
+    expect(selfOverlapFraction(squareLoop())).toBeLessThan(0.01);
+  });
+
+  it('is ≈ 0.5 for an out-and-back', () => {
+    const out = line(UTRECHT, 45, 2.5);
+    const back = line(out[out.length - 1], 225, 2.5);
+    back[back.length - 1] = UTRECHT;
+    const f = selfOverlapFraction([UTRECHT, ...out, ...back]);
+    expect(f).toBeGreaterThan(0.4);
+    expect(f).toBeLessThanOrEqual(0.5);
+  });
+
+  it('grows with a spur', () => {
+    const sq = squareLoop();
+    const base = sq[25];
+    const spurred = [...sq.slice(0, 26), ...line(base, 45, 0.4), ...line(destinationPoint(base, 45, 0.4), 225, 0.4), ...sq.slice(26)];
+    expect(selfOverlapFraction(spurred)).toBeGreaterThan(0.06);
+  });
+});
+
+describe('findSpurs', () => {
+  it('finds nothing on a clean loop', () => {
+    expect(findSpurs(squareLoop())).toEqual([]);
+  });
+
+  it('detects a synthetic spur with the right base and tip', () => {
+    const sq = squareLoop();
+    const baseIdx = 25;
+    const base = sq[baseIdx];
+    const out = line(base, 45, 0.4);
+    const back = line(out[out.length - 1], 225, 0.4);
+    const path = [...sq.slice(0, baseIdx + 1), ...out, ...back, ...sq.slice(baseIdx + 1)];
+    const tipIdx = baseIdx + out.length;
+    const endIdx = tipIdx + back.length;
+
+    const spurs = findSpurs(path);
+    expect(spurs).toHaveLength(1);
+    const [spur] = spurs;
+    expect(Math.abs(spur.baseIndex - baseIdx)).toBeLessThanOrEqual(1);
+    expect(spur.tipIndex).toBe(tipIdx);
+    expect(Math.abs(spur.endIndex - endIdx)).toBeLessThanOrEqual(1);
+    expect(spur.lengthKm).toBeGreaterThan(0.35);
+    expect(spur.lengthKm).toBeLessThan(0.45);
+  });
+
+  it('ignores spurs shorter than 80 m', () => {
+    const sq = squareLoop();
+    const base = sq[25];
+    const path = [...sq.slice(0, 26), ...line(base, 45, 0.05, 0.01), ...line(destinationPoint(base, 45, 0.05), 225, 0.05, 0.01), ...sq.slice(26)];
+    expect(findSpurs(path)).toEqual([]);
   });
 });

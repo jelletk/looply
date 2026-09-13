@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createMockProvider } from '../src/core/providers/mock.js';
-import { pathLengthKm, destinationPoint } from '../src/core/geo.js';
+import { pathLengthKm, destinationPoint, findSpurs } from '../src/core/geo.js';
 
 const start = { lat: 52.0907, lng: 5.1214 };
 
@@ -34,5 +34,22 @@ describe('createMockProvider', () => {
     await expect(provider.route({ start: {}, waypoints: [], mode: 'walk' })).rejects.toMatchObject({
       code: 'UNKNOWN',
     });
+  });
+
+  it('adds a spur every Nth request and returns a clean path for a repaired request', async () => {
+    const provider = createMockProvider({ delayMs: 0, spurEvery: 2 });
+    const waypoints = [destinationPoint(start, 0, 1.5), destinationPoint(start, 60, 1.5), destinationPoint(start, 120, 1.5)];
+    const first = await provider.route({ start, waypoints, mode: 'walk' });
+    expect(findSpurs(first.path)).toEqual([]);
+    const second = await provider.route({ start, waypoints, mode: 'walk' });
+    const spurs = findSpurs(second.path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeCloseTo(0.4, 1);
+    expect(second.distanceKm).toBeGreaterThan(first.distanceKm);
+    // Repaired: a waypoint on the previous path → clean, even though it is the 4th request.
+    await provider.route({ start, waypoints, mode: 'walk' });
+    const onPath = second.path[10];
+    const repaired = await provider.route({ start, waypoints: [waypoints[0], onPath, waypoints[2]], mode: 'walk' });
+    expect(findSpurs(repaired.path)).toEqual([]);
   });
 });

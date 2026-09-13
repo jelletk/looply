@@ -5,7 +5,8 @@ describe('core index', () => {
   it('re-exports the contract surface', () => {
     const expected = [
       'haversineKm', 'destinationPoint', 'pathLengthKm', 'bearingDeg', 'routeOverlap',
-      'generateRoutes', 'buildLoopWaypoints',
+      'densifyPath', 'selfOverlapFraction', 'findSpurs',
+      'generateRoutes', 'buildLoopWaypoints', 'defaultToleranceKm',
       'createGoogleProvider', 'createMockProvider',
       'estimateDurationMin', 'formatDuration', 'formatKm',
       'createRouteStore', 'listRoutes', 'getRoute', 'saveRoute', 'deleteRoute', 'renameRoute',

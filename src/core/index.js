@@ -1,5 +1,15 @@
-export { haversineKm, destinationPoint, pathLengthKm, bearingDeg, routeOverlap, normalizeBearing } from './geo.js';
-export { generateRoutes, buildLoopWaypoints, compassLabel } from './generator.js';
+export {
+  haversineKm,
+  destinationPoint,
+  pathLengthKm,
+  bearingDeg,
+  routeOverlap,
+  normalizeBearing,
+  densifyPath,
+  selfOverlapFraction,
+  findSpurs,
+} from './geo.js';
+export { generateRoutes, buildLoopWaypoints, compassLabel, defaultToleranceKm } from './generator.js';
 export { createGoogleProvider, decodePolyline } from './providers/google.js';
 export { createMockProvider } from './providers/mock.js';
 export { estimateDurationMin, formatDuration, formatKm } from './pace.js';
