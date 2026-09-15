@@ -130,7 +130,8 @@ export function createGoogleProvider(google) {
       const request = {
         origin: { lat: start.lat, lng: start.lng },
         destination: { lat: start.lat, lng: start.lng },
-        waypoints: waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: true })),
+        // `via: true` marks a pass-through point (stopover: false); everything else is a stopover.
+        waypoints: waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: !w.via })),
         travelMode: mode === 'bike' ? TravelMode.BICYCLING : TravelMode.WALKING,
         optimizeWaypoints: false,
         avoidHighways: true,

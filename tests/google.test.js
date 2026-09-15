@@ -65,6 +65,15 @@ describe('createGoogleProvider', () => {
     expect(request.waypoints[0].location).toEqual(waypoints[0]);
   });
 
+  it('maps via: true to stopover: false', async () => {
+    const { google, route } = fakeGoogle(async () => okResult([{ lat: 52, lng: 5 }]));
+    const provider = createGoogleProvider(google);
+    await provider.route({ start, waypoints: [{ ...waypoints[0], via: true }, waypoints[1]], mode: 'walk' });
+    const request = route.mock.calls[0][0];
+    expect(request.waypoints[0]).toEqual({ location: waypoints[0], stopover: false });
+    expect(request.waypoints[1]).toEqual({ location: waypoints[1], stopover: true });
+  });
+
   it('maps run → WALKING and bike → BICYCLING', async () => {
     const { google, route } = fakeGoogle(async () => okResult([{ lat: 52, lng: 5 }]));
     const provider = createGoogleProvider(google);

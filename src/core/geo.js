@@ -156,79 +156,234 @@ export function selfOverlapFraction(path, cellKm = 0.03) {
   return revisited / (cells.length - 1);
 }
 
-/** True when ≥ 60 % of the distinct cells strictly between i and j are entered at least twice. */
-function isRetrace(cells, i, j) {
-  const counts = new Map();
-  let prev = null;
-  for (let k = i + 1; k < j; k++) {
-    const c = cells[k];
-    if (c === prev) continue;
-    prev = c;
-    counts.set(c, (counts.get(c) || 0) + 1);
-  }
-  if (counts.size === 0) return false;
-  let twice = 0;
-  for (const n of counts.values()) if (n >= 2) twice++;
-  return twice / counts.size >= 0.6;
-}
-
-const MIN_SPUR_KM = 0.08;
+const MIN_SPUR_KM = 0.025;
+const STEM_TOLERANCE_KM = 0.015;
+const RETRACE_TOLERANCE_KM = 0.008; // way out and way back on the same road coincide this closely
+const MIN_PARTNER_ARC_KM = 0.012; // a partner must be this far along the path (rules out neighbours at a corner)
+const MIN_RUN_KM = MIN_SPUR_KM - MIN_PARTNER_ARC_KM / 2; // a doubled run this long is a spur of ≥ MIN_SPUR_KM
+const STEM_STEP_KM = 0.005;
 
 /**
- * Doubled-back stretches ("spurs"): the walk leaves a cell, retraces its cells in reverse and
- * returns to the same cell. Returns [{ baseIndex, tipIndex, endIndex, lengthKm }] in original
- * path indices, largest first. baseIndex = where the spur starts, tipIndex = the point furthest
- * from the base, endIndex = where the walk is back at the base, lengthKm = one-way length.
- * Only spurs of ≥ 0.08 km are reported; the loop's own closing return is not a spur.
+ * Grid cell size used by the spur/overlap detectors when none is given: 1/200 of the path
+ * length, clamped to 10–30 m, so a 1.3 km loop is inspected at 10 m and a 30 km ride at 30 m.
  */
-export function findSpurs(path, cellKm = 0.03) {
-  const { points, orig } = densifyIndexed(path, cellKm / 3);
+export function spurCellKm(path) {
+  const len = pathLengthKm(path);
+  return Math.max(0.01, Math.min(0.03, len / 200));
+}
+
+function cumulative(path) {
+  const cum = [0];
+  for (let k = 1; k < path.length; k++) cum.push(cum[k - 1] + haversineKm(path[k - 1], path[k]));
+  return cum;
+}
+
+/** Point at arc length `t` along `path`, using the cumulative lengths `cum`. */
+function pointAtArc(path, cum, t) {
+  if (t <= 0) return path[0];
+  const total = cum[cum.length - 1];
+  if (t >= total) return path[path.length - 1];
+  let k = 1;
+  while (k < cum.length && cum[k] < t) k++;
+  const a = path[k - 1];
+  const b = path[k];
+  const seg = cum[k] - cum[k - 1];
+  const f = seg > 0 ? (t - cum[k - 1]) / seg : 0;
+  return { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
+}
+
+/**
+ * The start stem: the stretch from the start point that the walk retraces at the very end
+ * (a cul-de-sac the loop has to leave and re-enter). The outbound prefix and the reversed
+ * inbound suffix are compared at equal arc lengths; the stem is where they coincide (≤ 15 m).
+ * Returns null when there is none (< 25 m), otherwise { lengthKm, outIndex, backIndex, junction }:
+ * lengthKm is one-way, outIndex = first original vertex after the stem on the way out,
+ * backIndex = last vertex before the stem on the way back, junction = where the two part.
+ */
+export function spurStemAtStart(path) {
+  if (!Array.isArray(path) || path.length < 3) return null;
+  const cum = cumulative(path);
+  const total = cum[cum.length - 1];
+  if (total <= 0) return null;
+  const reversed = path.slice().reverse();
+  const rcum = cumulative(reversed);
+
+  let t = 0;
+  for (let step = STEM_STEP_KM; step <= total / 2; step += STEM_STEP_KM) {
+    if (haversineKm(pointAtArc(path, cum, step), pointAtArc(reversed, rcum, step)) > STEM_TOLERANCE_KM) break;
+    t = step;
+  }
+  if (t < MIN_SPUR_KM) return null;
+
+  let outIndex = 1;
+  while (outIndex < path.length - 1 && cum[outIndex] <= t) outIndex++;
+  let backIndex = path.length - 2;
+  while (backIndex > outIndex && total - cum[backIndex] <= t) backIndex--;
+  if (backIndex < outIndex) backIndex = outIndex - 1; // nothing but stem: empty core
+  const junction = pointAtArc(path, cum, t);
+
+  // A stub that leaves the start and comes straight back before the loop begins looks the same
+  // from the ends, but then the loop itself passes through the start again: that is a spur.
+  const inner = path.slice(outIndex, backIndex + 1);
+  if (inner.length > 1) {
+    for (const p of densifyPath(inner, STEM_STEP_KM)) {
+      if (haversineKm(p, path[0]) <= STEM_TOLERANCE_KM) return null;
+    }
+  }
+  return { lengthKm: t, outIndex, backIndex, junction };
+}
+
+/**
+ * Path with the start stem removed: the loop proper, closed at the junction.
+ * Returns { stemKm, core, stem }; core === path when there is no stem.
+ */
+export function trimStartStem(path) {
+  const stem = spurStemAtStart(path);
+  if (!stem) return { stemKm: 0, core: path, stem: null };
+  const inner = path.slice(stem.outIndex, stem.backIndex + 1);
+  return { stemKm: stem.lengthKm, core: [stem.junction, ...inner, stem.junction], stem };
+}
+
+/** Local flat projection (km) around refLat: p → { x, y }. */
+function flatXY(refLat) {
+  const kmPerDegLat = (Math.PI / 180) * EARTH_RADIUS_KM;
+  const kmPerDegLng = kmPerDegLat * Math.cos(toRad(refLat));
+  return (p) => ({ x: p.lng * kmPerDegLng, y: p.lat * kmPerDegLat });
+}
+
+/** Absolute heading difference in degrees, 0..180. */
+function headingDiff(a, b) {
+  return Math.abs(((a - b + 540) % 360) - 180);
+}
+
+/**
+ * Doubled-back stretches ("spurs"): road that the walk covers twice. Every point (path densified
+ * to ~cellKm / 3) that has a partner point within RETRACE_TOLERANCE_KM, at least 12 m away along
+ * the path and travelled in the opposite (or the same) direction, is "doubled"; a run of doubled
+ * points ≥ 19 m long is a retraced stretch, and the outbound run is paired with the run it
+ * retraces. Returns [{ baseIndex, tipIndex, endIndex, lengthKm }] in original path indices,
+ * largest first: baseIndex = where the spur leaves the loop, endIndex = where the walk is back
+ * on the loop, tipIndex = the turn-around, lengthKm = one-way doubled length (nested spurs are
+ * folded into the enclosing one). Catches plain stubs as well as lollipops (a doubled stick with
+ * a loop at the end). Sharp corners and crossings (headings 30–150° apart) are not spurs; the
+ * closing of the loop is not either. A start stem is reported like any other spur — strip it with
+ * trimStartStem first when it must not count.
+ */
+export function findSpurs(path, cellKm = spurCellKm(path)) {
+  const step = Math.max(0.003, cellKm / 3);
+  const { points, orig } = densifyIndexed(path, step);
   const n = points.length;
   if (n < 4) return [];
-  const key = cellKeyFactory(points[0].lat, cellKm);
-  const cells = points.map(key);
-  const cum = [0];
-  for (let k = 1; k < n; k++) cum.push(cum[k - 1] + haversineKm(points[k - 1], points[k]));
+  const cum = cumulative(points);
+  const tol = RETRACE_TOLERANCE_KM;
+  const xy = flatXY(points[0].lat);
+  const pts = points.map(xy);
 
-  const occurrences = new Map();
-  cells.forEach((c, k) => {
-    if (!occurrences.has(c)) occurrences.set(c, []);
-    occurrences.get(c).push(k);
+  // Spatial hash with tol-sized bins; neighbours are in the 3 × 3 bins around a point.
+  const bins = new Map();
+  const binKey = (bx, by) => `${bx}:${by}`;
+  pts.forEach((p, k) => {
+    const key = binKey(Math.floor(p.x / tol), Math.floor(p.y / tol));
+    if (!bins.has(key)) bins.set(key, []);
+    bins.get(key).push(k);
   });
+  const heading = (k) => bearingDeg(points[Math.max(0, k - 1)], points[Math.min(n - 1, k + 1)]);
+  const headings = points.map((_, k) => heading(k));
 
-  const raw = [];
-  for (let i = 0; i < n - 1; i++) {
-    for (const j of occurrences.get(cells[i])) {
-      if (j <= i + 1) continue;
-      if (i === 0 && j === n - 1) continue; // closing the loop
-      if ((cum[j] - cum[i]) / 2 < MIN_SPUR_KM) continue;
-      if (isRetrace(cells, i, j)) {
-        raw.push({ i, j });
-        break;
+  const partner = new Array(n).fill(-1);
+  for (let k = 0; k < n; k++) {
+    const p = pts[k];
+    const bx = Math.floor(p.x / tol);
+    const by = Math.floor(p.y / tol);
+    let best = -1;
+    let bestD = tol;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const list = bins.get(binKey(bx + dx, by + dy));
+        if (!list) continue;
+        for (const m of list) {
+          if (Math.abs(cum[m] - cum[k]) < MIN_PARTNER_ARC_KM) continue;
+          const diff = headingDiff(headings[k], headings[m]);
+          if (diff > 30 && diff < 150) continue; // crossing, not the same road
+          const d = Math.hypot(pts[m].x - p.x, pts[m].y - p.y);
+          if (d <= bestD) {
+            bestD = d;
+            best = m;
+          }
+        }
+      }
+    }
+    partner[k] = best;
+  }
+
+  // Runs of doubled points (gaps of ≤ 2 points bridged), split where the partner side flips.
+  const runs = [];
+  let cur = null;
+  let gap = 0;
+  for (let k = 0; k < n; k++) {
+    const doubled = partner[k] >= 0;
+    if (doubled) {
+      const side = partner[k] > k ? 1 : -1;
+      if (cur && cur.side === side) {
+        cur.b = k;
+      } else {
+        if (cur) runs.push(cur);
+        cur = { a: k, b: k, side };
+      }
+      gap = 0;
+    } else if (cur) {
+      gap++;
+      if (gap > 2) {
+        runs.push(cur);
+        cur = null;
+        gap = 0;
       }
     }
   }
+  if (cur) runs.push(cur);
+  const long = runs.filter((r) => cum[r.b] - cum[r.a] >= MIN_RUN_KM);
+  if (long.length === 0) return [];
 
-  const merged = [];
-  for (const r of raw) {
-    const last = merged[merged.length - 1];
-    if (last && r.i <= last.j) last.j = Math.max(last.j, r.j);
-    else merged.push({ ...r });
+  // Pair each run with the run holding the median of its partners.
+  const runOf = new Array(n).fill(-1);
+  long.forEach((r, idx) => {
+    for (let k = r.a; k <= r.b; k++) runOf[k] = idx;
+  });
+  const pairs = [];
+  const used = new Set();
+  long.forEach((r, idx) => {
+    if (used.has(idx)) return;
+    const partners = [];
+    for (let k = r.a; k <= r.b; k++) if (partner[k] >= 0) partners.push(partner[k]);
+    partners.sort((x, y) => x - y);
+    const median = partners[Math.floor(partners.length / 2)];
+    const q = runOf[median];
+    if (q < 0 || q === idx || used.has(q)) return;
+    const other = long[q];
+    const first = r.a < other.a ? r : other;
+    const second = r.a < other.a ? other : r;
+    if (second.a <= first.b) return;
+    used.add(idx);
+    used.add(q);
+    const lengthKm = (cum[first.b] - cum[first.a] + cum[second.b] - cum[second.a]) / 2 + MIN_PARTNER_ARC_KM / 2;
+    // Turn-around: the point between the runs furthest along the way out and back.
+    const mid = (cum[first.b] + cum[second.a]) / 2;
+    let tip = first.b;
+    while (tip < second.a && cum[tip] < mid) tip++;
+    pairs.push({ base: first.a, tip, end: second.b, lengthKm });
+  });
+
+  // Fold nested spurs into the enclosing one.
+  pairs.sort((x, y) => x.base - y.base || y.end - x.end);
+  const outer = [];
+  for (const s of pairs) {
+    const parent = outer.find((o) => s.base >= o.base && s.end <= o.end);
+    if (parent) parent.lengthKm += s.lengthKm;
+    else outer.push(s);
   }
 
-  return merged
-    .map(({ i, j }) => {
-      let tip = i + 1;
-      let far = -1;
-      for (let k = i + 1; k < j; k++) {
-        const d = haversineKm(points[i], points[k]);
-        if (d > far) {
-          far = d;
-          tip = k;
-        }
-      }
-      return { baseIndex: orig[i], tipIndex: orig[tip], endIndex: orig[j], lengthKm: (cum[j] - cum[i]) / 2 };
-    })
+  return outer
+    .map((s) => ({ baseIndex: orig[s.base], tipIndex: orig[s.tip], endIndex: orig[s.end], lengthKm: s.lengthKm }))
     .filter((s) => s.lengthKm >= MIN_SPUR_KM)
     .sort((a, b) => b.lengthKm - a.lengthKm);
 }

@@ -52,4 +52,18 @@ describe('createMockProvider', () => {
     const repaired = await provider.route({ start, waypoints: [waypoints[0], onPath, waypoints[2]], mode: 'walk' });
     expect(findSpurs(repaired.path)).toEqual([]);
   });
+
+  it('makes short 50 m spurs with spurKm and treats via waypoints as on-road', async () => {
+    const provider = createMockProvider({ delayMs: 0, spurEvery: 1, spurKm: 0.05 });
+    const waypoints = [destinationPoint(start, 0, 0.5), destinationPoint(start, 60, 0.5), destinationPoint(start, 120, 0.5)];
+    const spurred = await provider.route({ start, waypoints, mode: 'walk' });
+    const spurs = findSpurs(spurred.path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeCloseTo(0.05, 1);
+    // Every request would get a spur, except a polish request (via waypoints).
+    const via = waypoints.map((w) => ({ ...w, via: true }));
+    const polished = await provider.route({ start, waypoints: via, mode: 'walk' });
+    expect(findSpurs(polished.path)).toEqual([]);
+    expect(polished.path.length).toBeLessThan(spurred.path.length);
+  });
 });

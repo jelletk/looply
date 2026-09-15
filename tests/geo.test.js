@@ -9,6 +9,9 @@ import {
   densifyPath,
   selfOverlapFraction,
   findSpurs,
+  spurCellKm,
+  spurStemAtStart,
+  trimStartStem,
 } from '../src/core/geo.js';
 
 const AMSTERDAM = { lat: 52.3676, lng: 4.9041 };
@@ -196,10 +199,125 @@ describe('findSpurs', () => {
     expect(spur.lengthKm).toBeLessThan(0.45);
   });
 
-  it('ignores spurs shorter than 80 m', () => {
+  it('detects short spurs down to 25 m and ignores 15 m', () => {
     const sq = squareLoop();
     const base = sq[25];
-    const path = [...sq.slice(0, 26), ...line(base, 45, 0.05, 0.01), ...line(destinationPoint(base, 45, 0.05), 225, 0.05, 0.01), ...sq.slice(26)];
+    const withSpur = (km) => [
+      ...sq.slice(0, 26),
+      ...line(base, 45, km, 0.005),
+      ...line(destinationPoint(base, 45, km), 225, km, 0.005),
+      ...sq.slice(26),
+    ];
+    expect(findSpurs(withSpur(0.015))).toEqual([]);
+    for (const km of [0.03, 0.05]) {
+      const spurs = findSpurs(withSpur(km));
+      expect(spurs).toHaveLength(1);
+      expect(spurs[0].lengthKm).toBeGreaterThan(km - 0.01);
+      expect(spurs[0].lengthKm).toBeLessThan(km + 0.01);
+      expect(Math.abs(spurs[0].baseIndex - 25)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('uses a finer grid for short loops', () => {
+    expect(spurCellKm(squareLoop(0.325))).toBeCloseTo(0.01, 6);
+    expect(spurCellKm(squareLoop())).toBeCloseTo(0.025, 4);
+    expect(spurCellKm(squareLoop(7.5))).toBeCloseTo(0.03, 6);
+    const sq = squareLoop(0.325);
+    const base = sq[8];
+    const path = [...sq.slice(0, 9), ...line(base, 45, 0.03, 0.005), ...line(destinationPoint(base, 45, 0.03), 225, 0.03, 0.005), ...sq.slice(9)];
+    const spurs = findSpurs(path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeGreaterThan(0.025);
+    expect(spurs[0].lengthKm).toBeLessThan(0.04);
+  });
+
+  it('detects a lollipop: a doubled stick with a loop at its end', () => {
+    // Square loop; at vertex 25 a 300 m stick leads to a small 400 m square, then back down the stick.
+    const sq = squareLoop();
+    const base = sq[25];
+    const stick = line(base, 45, 0.3, 0.02);
+    const head = stick[stick.length - 1];
+    const smallLoop = [];
+    let cur = head;
+    for (const b of [0, 90, 180, 270]) {
+      const seg = line(cur, b, 0.1, 0.02);
+      smallLoop.push(...seg);
+      cur = seg[seg.length - 1];
+    }
+    const back = line(head, 225, 0.3, 0.02);
+    const path = [...sq.slice(0, 26), ...stick, ...smallLoop, ...back, ...sq.slice(26)];
+    const spurs = findSpurs(path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeGreaterThan(0.25);
+    expect(spurs[0].lengthKm).toBeLessThan(0.35);
+    expect(Math.abs(spurs[0].baseIndex - 25)).toBeLessThanOrEqual(1);
+    expect(spurs[0].endIndex).toBeGreaterThan(spurs[0].tipIndex);
+  });
+
+  it('does not report a crossing of the loop with itself', () => {
+    // Figure of eight: two squares sharing a corner, crossed at 90°.
+    const a = UTRECHT;
+    const p = [a];
+    for (const b of [0, 90, 180, 270, 180, 270, 0, 90]) p.push(...line(p[p.length - 1], b, 0.6, 0.02));
+    p[p.length - 1] = a;
+    expect(findSpurs(p)).toEqual([]);
+  });
+
+  it('does not mistake a sharp corner for a spur', () => {
+    // 60° fold: out 1.5 km north, then back south-south-east — the legs share cells near the vertex.
+    const a = destinationPoint(UTRECHT, 0, 1.5);
+    const b = destinationPoint(a, 150, 1.5);
+    const path = [UTRECHT, ...line(UTRECHT, 0, 1.5, 0.05), ...line(a, 150, 1.5, 0.05), ...line(b, 270, 1.5, 0.05), UTRECHT];
     expect(findSpurs(path)).toEqual([]);
+  });
+});
+
+describe('spurStemAtStart / trimStartStem', () => {
+  /** Square loop reached through a 200 m stem south of its first corner. */
+  function stemmedLoop(stemKm = 0.2) {
+    const junction = UTRECHT;
+    const start = destinationPoint(junction, 180, stemKm);
+    const sq = squareLoop(1.25);
+    const path = [start, ...line(start, 0, stemKm, 0.05), ...sq.slice(1), ...line(junction, 180, stemKm, 0.05)];
+    path[path.length - 1] = start;
+    return { path, start, junction };
+  }
+
+  it('is null for a loop without a stem', () => {
+    expect(spurStemAtStart(squareLoop())).toBeNull();
+    expect(trimStartStem(squareLoop()).stemKm).toBe(0);
+  });
+
+  it('finds the stem and its junction', () => {
+    const { path, junction } = stemmedLoop();
+    const stem = spurStemAtStart(path);
+    expect(stem).not.toBeNull();
+    expect(stem.lengthKm).toBeGreaterThan(0.18);
+    expect(stem.lengthKm).toBeLessThan(0.23);
+    expect(haversineKm(stem.junction, junction)).toBeLessThan(0.02);
+    expect(stem.outIndex).toBeGreaterThan(0);
+    expect(stem.backIndex).toBeLessThan(path.length - 1);
+  });
+
+  it('the trimmed core is a clean closed loop even though the full path overlaps itself', () => {
+    const { path } = stemmedLoop();
+    expect(selfOverlapFraction(path)).toBeGreaterThan(0.03);
+    const { stemKm, core } = trimStartStem(path);
+    expect(stemKm).toBeGreaterThan(0.18);
+    expect(haversineKm(core[0], core[core.length - 1])).toBeLessThan(1e-6);
+    expect(pathLengthKm(core)).toBeCloseTo(5, 0);
+    expect(findSpurs(core)).toEqual([]);
+    expect(selfOverlapFraction(core)).toBeLessThan(0.01);
+  });
+
+  it('does not report a stub at the start that is not retraced at the end', () => {
+    // 60 m out-and-back east of the start before the loop begins: a spur, not a stem.
+    const sq = squareLoop();
+    const tip = destinationPoint(UTRECHT, 90, 0.06);
+    const path = [UTRECHT, ...line(UTRECHT, 90, 0.06, 0.01), ...line(tip, 270, 0.06, 0.01), ...sq.slice(1)];
+    expect(spurStemAtStart(path)).toBeNull();
+    const spurs = findSpurs(path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeCloseTo(0.06, 1);
   });
 });

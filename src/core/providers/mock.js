@@ -1,8 +1,9 @@
 // Deterministic offline provider: straight lines through the waypoints.
 // The reported distance is inflated by `wobble` so the generator's scaling loop is exercised.
-// With `spurEvery` > 0 every Nth request gets an out-and-back spur at the second waypoint
-// (like a waypoint snapped to a dead end); a repaired request — one whose waypoints lie on a
-// path returned earlier — always comes back clean, so the generator's repair logic is exercised.
+// With `spurEvery` > 0 every Nth request gets an out-and-back spur of `spurKm` at the second
+// waypoint (like a waypoint snapped to a dead end); a repaired request — one whose waypoints lie
+// on a path returned earlier, or carry `via: true` (polish points on real roads) — always comes
+// back clean, so the generator's repair logic is exercised. `via` has no other effect here.
 
 import { haversineKm, destinationPoint, bearingDeg } from '../geo.js';
 
@@ -71,7 +72,8 @@ export function createMockProvider({ delayMs = 150, wobble = 0.15, spurEvery = 0
 
       let stops = [start, ...waypoints, start];
       if (spurEvery > 0) {
-        const repaired = waypoints.some((wp) => isRepairedWaypoint(wp, start, previous));
+        const repaired =
+          waypoints.some((wp) => wp.via === true) || waypoints.some((wp) => isRepairedWaypoint(wp, start, previous));
         requests++;
         if (!repaired && requests % spurEvery === 0 && waypoints.length >= 2) {
           const base = waypoints[1];
