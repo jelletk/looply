@@ -263,6 +263,32 @@ describe('findSpurs', () => {
     expect(findSpurs(p)).toEqual([]);
   });
 
+  it('detects a spur whose way back runs on the other carriageway of a divided road', () => {
+    // 200 m out, then back 25 m to the side: the two carriageways of a dual road.
+    const sq = squareLoop();
+    const base = sq[25];
+    const tip = destinationPoint(base, 45, 0.2);
+    const across = destinationPoint(tip, 135, 0.025);
+    const path = [...sq.slice(0, 26), ...line(base, 45, 0.2, 0.02), across, ...line(across, 225, 0.2, 0.02), ...sq.slice(26)];
+    const spurs = findSpurs(path);
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].lengthKm).toBeGreaterThan(0.15);
+  });
+
+  it('does not mistake a parallel path in the same direction for a spur', () => {
+    // A towpath 5 m beside the road, walked the same way after a short loop: distinct road, no retrace.
+    const sq = squareLoop();
+    const base = sq[25];
+    const a = line(base, 45, 0.3, 0.02);
+    const end = a[a.length - 1];
+    const hop = destinationPoint(end, 135, 0.3);
+    const side = destinationPoint(base, 135, 0.005);
+    const back = [...line(end, 135, 0.3, 0.02), ...line(hop, 225, 0.3, 0.02), ...line(destinationPoint(hop, 225, 0.3), 315, 0.295, 0.02)];
+    const parallel = line(side, 45, 0.3, 0.02);
+    const path = [...sq.slice(0, 26), ...a, ...back, ...parallel];
+    expect(findSpurs(path).filter((s) => s.lengthKm > 0.05)).toEqual([]);
+  });
+
   it('does not mistake a sharp corner for a spur', () => {
     // 60° fold: out 1.5 km north, then back south-south-east — the legs share cells near the vertex.
     const a = destinationPoint(UTRECHT, 0, 1.5);

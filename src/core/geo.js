@@ -158,7 +158,14 @@ export function selfOverlapFraction(path, cellKm = 0.03) {
 
 const MIN_SPUR_KM = 0.025;
 const STEM_TOLERANCE_KM = 0.015;
-const RETRACE_TOLERANCE_KM = 0.008; // way out and way back on the same road coincide this closely
+// Way out and way back on the same road coincide this closely.
+const RETRACE_TOLERANCE_KM = 0.008;
+// On a divided road the way back runs on the other carriageway, 10–30 m away (Rotterdam fixture:
+// ~25 m). That wider gap only counts when the two stretches run straight against each other;
+// a sharp corner or a crossing never gets it.
+const DIVIDED_ROAD_TOLERANCE_KM = 0.03;
+const DIVIDED_ROAD_MIN_HEADING_DIFF = 170;
+const RETRACE_MIN_HEADING_DIFF = 150; // a retrace comes back the opposite way; same-direction neighbours never pair
 const MIN_PARTNER_ARC_KM = 0.012; // a partner must be this far along the path (rules out neighbours at a corner)
 const MIN_RUN_KM = MIN_SPUR_KM - MIN_PARTNER_ARC_KM / 2; // a doubled run this long is a spur of ≥ MIN_SPUR_KM
 const STEM_STEP_KM = 0.005;
@@ -258,16 +265,19 @@ function headingDiff(a, b) {
 
 /**
  * Doubled-back stretches ("spurs"): road that the walk covers twice. Every point (path densified
- * to ~cellKm / 3) that has a partner point within RETRACE_TOLERANCE_KM, at least 12 m away along
- * the path and travelled in the opposite (or the same) direction, is "doubled"; a run of doubled
- * points ≥ 19 m long is a retraced stretch, and the outbound run is paired with the run it
- * retraces. Returns [{ baseIndex, tipIndex, endIndex, lengthKm }] in original path indices,
- * largest first: baseIndex = where the spur leaves the loop, endIndex = where the walk is back
- * on the loop, tipIndex = the turn-around, lengthKm = one-way doubled length (nested spurs are
- * folded into the enclosing one). Catches plain stubs as well as lollipops (a doubled stick with
- * a loop at the end). Sharp corners and crossings (headings 30–150° apart) are not spurs; the
- * closing of the loop is not either. A start stem is reported like any other spur — strip it with
- * trimStartStem first when it must not count.
+ * to ~cellKm / 3) that has a partner point at least 12 m away along the path, travelled the
+ * opposite way (≥ 150°) and within 8 m — or within 30 m when the two run straight against each
+ * other (≥ 170°, the two carriageways of a divided road) — is "doubled"; a run of doubled points ≥ 19 m
+ * long is a retraced stretch, and the outbound run is paired with the run it retraces. Returns
+ * [{ baseIndex, tipIndex, endIndex, lengthKm }] in original path indices, largest first:
+ * baseIndex = where the spur leaves the loop, endIndex = where the walk is back on the loop,
+ * tipIndex = the turn-around, lengthKm = one-way doubled length (nested spurs are folded into the
+ * enclosing one; runs that overlap in index space are merged into one continuous stretch instead
+ * of being dropped). Catches plain stubs as well as lollipops (a doubled stick with a loop at the
+ * end). Sharp corners, crossings and same-direction neighbours (< 150° apart — a parallel but
+ * distinct path such as a towpath beside a road) are not spurs; the closing of the loop is not
+ * either. A start stem is reported like any other spur — strip it with trimStartStem first when
+ * it must not count.
  */
 export function findSpurs(path, cellKm = spurCellKm(path)) {
   const step = Math.max(0.003, cellKm / 3);
@@ -275,7 +285,7 @@ export function findSpurs(path, cellKm = spurCellKm(path)) {
   const n = points.length;
   if (n < 4) return [];
   const cum = cumulative(points);
-  const tol = RETRACE_TOLERANCE_KM;
+  const tol = DIVIDED_ROAD_TOLERANCE_KM; // bin size: the widest distance any partner may have
   const xy = flatXY(points[0].lat);
   const pts = points.map(xy);
 
@@ -296,7 +306,7 @@ export function findSpurs(path, cellKm = spurCellKm(path)) {
     const bx = Math.floor(p.x / tol);
     const by = Math.floor(p.y / tol);
     let best = -1;
-    let bestD = tol;
+    let bestD = Infinity;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const list = bins.get(binKey(bx + dx, by + dy));
@@ -304,9 +314,20 @@ export function findSpurs(path, cellKm = spurCellKm(path)) {
         for (const m of list) {
           if (Math.abs(cum[m] - cum[k]) < MIN_PARTNER_ARC_KM) continue;
           const diff = headingDiff(headings[k], headings[m]);
-          if (diff > 30 && diff < 150) continue; // crossing, not the same road
-          const d = Math.hypot(pts[m].x - p.x, pts[m].y - p.y);
-          if (d <= bestD) {
+          // A retrace always comes back the opposite way; anything else — a crossing, or a
+          // distinct parallel path (towpath beside a road) that runs the same direction — is not
+          // a spur.
+          if (diff < RETRACE_MIN_HEADING_DIFF) continue;
+          const ex = pts[m].x - p.x;
+          const ey = pts[m].y - p.y;
+          const d = Math.hypot(ex, ey);
+          // The wide gap must be sideways (the other carriageway beside you), not ahead of you:
+          // two stretches that meet head-on at a crossing are opposite too, but lie in line.
+          const h = headings[k] * DEG;
+          const along = Math.abs(ex * Math.sin(h) + ey * Math.cos(h));
+          const wide = diff >= DIVIDED_ROAD_MIN_HEADING_DIFF && along <= step;
+          const maxD = wide ? DIVIDED_ROAD_TOLERANCE_KM : RETRACE_TOLERANCE_KM;
+          if (d <= maxD && d <= bestD) {
             bestD = d;
             best = m;
           }
@@ -362,9 +383,18 @@ export function findSpurs(path, cellKm = spurCellKm(path)) {
     const other = long[q];
     const first = r.a < other.a ? r : other;
     const second = r.a < other.a ? other : r;
-    if (second.a <= first.b) return;
     used.add(idx);
     used.add(q);
+    if (second.a <= first.b) {
+      // The runs overlap in index space (the gap bridging joined out and back): one continuous
+      // doubled stretch, half of it one-way.
+      const end = Math.max(first.b, second.b);
+      const mid = (cum[first.a] + cum[end]) / 2;
+      let tip = first.a;
+      while (tip < end && cum[tip] < mid) tip++;
+      pairs.push({ base: first.a, tip, end, lengthKm: (cum[end] - cum[first.a]) / 2 + MIN_PARTNER_ARC_KM / 2 });
+      return;
+    }
     const lengthKm = (cum[first.b] - cum[first.a] + cum[second.b] - cum[second.a]) / 2 + MIN_PARTNER_ARC_KM / 2;
     // Turn-around: the point between the runs furthest along the way out and back.
     const mid = (cum[first.b] + cum[second.a]) / 2;
