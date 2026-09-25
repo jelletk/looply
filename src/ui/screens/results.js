@@ -12,6 +12,7 @@ export function renderResultsSheet({
   onSave,
   onOpenMaps,
   onRetry,
+  onCancel,
 }) {
   const wrap = document.createElement('div');
   wrap.className = 'results-sheet';
@@ -28,6 +29,14 @@ export function renderResultsSheet({
     text.textContent = progressText || 'Routes zoeken…';
 
     statusBox.append(spinner, text);
+    if (onCancel) {
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn btn--plain';
+      cancel.textContent = 'Annuleren';
+      cancel.addEventListener('click', onCancel);
+      statusBox.appendChild(cancel);
+    }
     wrap.appendChild(statusBox);
     return wrap;
   }

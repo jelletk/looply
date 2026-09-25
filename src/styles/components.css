@@ -165,6 +165,12 @@
   color: var(--color-accent);
 }
 
+.btn--plain {
+  background: transparent;
+  color: var(--color-accent);
+  font-weight: var(--weight-regular);
+}
+
 /* Segmented control */
 .segmented {
   position: relative;
@@ -173,7 +179,7 @@
   border-radius: var(--radius-pill);
   padding: 2px;
   margin: var(--space-4) 0;
-  height: 36px;
+  height: 48px; /* each option 44 px (Apple's minimum touch target); 36 px missed taps in the hand test */
 }
 
 .segmented__track {
@@ -478,4 +484,83 @@
   stroke-width: 5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Start pill: at least a 44 px touch target */
+.start-pill {
+  min-height: 44px;
+}
+
+/* Back button floating over the map, top-left */
+.back-button {
+  position: absolute;
+  top: calc(var(--safe-top) + var(--space-3));
+  left: var(--space-4);
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-sheet-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 0.5px solid var(--color-hairline);
+  color: var(--color-accent);
+  z-index: 20;
+}
+
+.back-button svg {
+  width: 22px;
+  height: 22px;
+  transform: rotate(180deg);
+}
+
+/* Toast at the top, below the start pill / back button, where iOS shows banners */
+.toast {
+  position: fixed;
+  left: var(--space-4);
+  right: var(--space-4);
+  top: calc(var(--safe-top) + 68px);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--color-ink);
+  color: var(--color-surface);
+  font-size: 15px;
+  line-height: 1.33;
+  z-index: 200;
+}
+
+/* Location explanation before the system prompt */
+.location-intro .sheet__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.location-intro__icon {
+  width: 44px;
+  height: 44px;
+  color: var(--color-accent);
+}
+
+.location-intro__title {
+  font-size: 22px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.3px;
+}
+
+.location-intro__text {
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  color: var(--color-ink-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.start-sheet__error {
+  font-size: 15px;
+  color: var(--color-danger);
 }

@@ -415,6 +415,35 @@ describe('generateRoutes with the mock provider', () => {
     expect(maxProviderCallsFor(30)).toBe(120);
   });
 
+  it('stops sending requests and rejects with ABORTED once the signal is aborted', async () => {
+    const provider = createMockProvider({ delayMs: 0 });
+    const routeSpy = vi.spyOn(provider, 'route');
+    const controller = new AbortController();
+    const search = generateRoutes({
+      start,
+      distanceKm: 5,
+      mode: 'walk',
+      provider,
+      rng: seeded(3),
+      signal: controller.signal,
+      onProgress: ({ done }) => {
+        if (done === 2) controller.abort();
+      },
+    });
+    await expect(search).rejects.toMatchObject({ code: 'ABORTED' });
+    const sentAtAbort = routeSpy.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(routeSpy.mock.calls.length).toBe(sentAtAbort);
+    expect(sentAtAbort).toBeLessThan(20);
+  });
+
+  it('reports NO_ANSWER when no request got through, NO_ROUTES when answers were unusable', async () => {
+    const offline = { route: async () => { throw Object.assign(new Error('network'), { code: 'UNKNOWN' }); } };
+    await expect(generateRoutes({ start, distanceKm: 5, provider: offline, rng: seeded(1) })).rejects.toMatchObject({ code: 'NO_ANSWER' });
+    const nowhere = { route: async () => { throw Object.assign(new Error('none'), { code: 'ZERO_RESULTS' }); } };
+    await expect(generateRoutes({ start, distanceKm: 5, provider: nowhere, rng: seeded(1) })).rejects.toMatchObject({ code: 'NO_ROUTES' });
+  });
+
   it('never makes more than maxProviderCalls requests and reports the count', async () => {
     const provider = createMockProvider({ delayMs: 0, wobble: 0.15 });
     const routeSpy = vi.spyOn(provider, 'route');

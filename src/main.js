@@ -17,8 +17,9 @@ import { createStartPill, openStartSheet } from './ui/components/startPicker.js'
 import { renderPlanSheet } from './ui/screens/plan.js';
 import { renderResultsSheet } from './ui/screens/results.js';
 import { renderSavedList } from './ui/screens/saved.js';
-
-const FALLBACK_START = { lat: 52.0907, lng: 5.1214 };
+import { showToast } from './ui/components/toast.js';
+import { createBackButton } from './ui/components/backButton.js';
+import { openLocationIntro, locationIntroSeen } from './ui/components/locationIntro.js';
 
 const params = new URLSearchParams(window.location.search);
 const forceMock = params.get('mock') === '1';
@@ -32,17 +33,20 @@ const state = {
   mode: 'walk',
   distanceByMode: { walk: 5, run: 7.5, bike: 30 },
   start: null,
-  startLabel: 'Locatie zoeken…',
+  startLabel: 'Startpunt kiezen',
   routesStatus: 'idle', // 'idle' | 'loading' | 'ready' | 'error'
   progressText: '',
   errorMessage: '',
-  routes: [],
+  routes: [], // the last search's results; a saved route opened from the Saved tab never replaces them
   selectedRouteId: null,
   savedRoutes: [],
+  savedRoute: null, // route shown in the Saved tab's detail view
 };
 
 let map = null;
 let provider = null;
+let searchController = null; // AbortController of the search in progress
+let shownRouteId; // route currently drawn on the map (undefined: nothing drawn yet)
 
 const app = document.getElementById('app');
 const mapContainer = document.createElement('div');
@@ -64,6 +68,7 @@ async function init() {
       console.error('Google Maps kon niet geladen worden, terug naar demo-modus.', err);
       provider = createMockProvider();
       map = createMap({ container: mapContainer, mode: 'svg' });
+      showToast('Google Maps laadt niet (verbinding of kaartsleutel). Je ziet nu de demo-modus met geschetste routes.', { durationMs: 8000 });
     }
   } else {
     provider = createMockProvider();
@@ -71,24 +76,34 @@ async function init() {
   }
 
   render();
-  resolveCurrentLocation();
+  if (locationIntroSeen()) {
+    resolveCurrentLocation();
+  } else {
+    openLocationIntro({ onAllow: resolveCurrentLocation, onChoose: openStartPicker });
+  }
 }
 
 function resolveCurrentLocation() {
   if (!navigator.geolocation) {
-    useFallbackStart('Geolocatie niet beschikbaar op dit toestel.');
+    showToast('Dit toestel geeft geen locatie door. Kies zelf een startpunt.');
     return;
   }
   navigator.geolocation.getCurrentPosition(
     (pos) => setStart({ lat: pos.coords.latitude, lng: pos.coords.longitude }, 'Huidige locatie'),
-    () => useFallbackStart('Locatie niet beschikbaar, Utrecht Domplein gebruikt.'),
+    (err) => showToast(locationErrorMessage(err), { durationMs: 8000 }),
     { timeout: 10000 }
   );
 }
 
-function useFallbackStart(message) {
-  console.warn(message);
-  setStart(FALLBACK_START, 'Utrecht Domplein');
+function locationErrorMessage(err) {
+  switch (err?.code) {
+    case 1: // PERMISSION_DENIED
+      return 'Looply mag je locatie niet gebruiken. Zet het aan via Instellingen › Privacy en beveiliging › Locatievoorzieningen, of kies zelf een startpunt.';
+    case 3: // TIMEOUT
+      return 'Je locatie bepalen duurde te lang. Probeer het opnieuw of kies zelf een startpunt.';
+    default:
+      return 'Je locatie is nu niet te bepalen. Kies zelf een startpunt.';
+  }
 }
 
 function setStart(latLng, label) {
@@ -138,7 +153,7 @@ function renderScreenLayer() {
   mapContainer.hidden = false;
 
   if (state.tab === 'plan' && state.planScreen === 'form') {
-    map.showRoute(null);
+    showOnMap(null);
     screenLayer.appendChild(createStartPill({ label: state.startLabel, onTap: openStartPicker }));
     screenLayer.appendChild(
       createSheet({
@@ -155,23 +170,65 @@ function renderScreenLayer() {
   }
 
   // Results view — reused for both plan-tab search results and a saved-tab detail view.
+  const inSaved = state.tab === 'saved';
+  const routes = inSaved ? [state.savedRoute] : state.routes;
+  const selectedRouteId = inSaved ? state.savedRoute.id : state.selectedRouteId;
+  const status = inSaved ? 'ready' : state.routesStatus;
+  if (status === 'ready') showOnMap(routes.find((r) => r.id === selectedRouteId) ?? null);
+  else showOnMap(null);
+
+  screenLayer.appendChild(
+    createBackButton({ label: inSaved ? 'Terug naar opgeslagen' : 'Terug naar plannen', onTap: handleBack })
+  );
   const savedIds = new Set(state.savedRoutes.map((r) => r.id));
   screenLayer.appendChild(
     createSheet({
       content: renderResultsSheet({
-        status: state.routesStatus,
+        status,
         progressText: state.progressText,
         errorMessage: state.errorMessage,
-        routes: state.routes,
-        selectedRouteId: state.selectedRouteId,
+        routes,
+        selectedRouteId,
         savedIds,
         onSelectRoute: handleSelectRoute,
         onSave: handleSave,
         onOpenMaps: handleOpenMaps,
         onRetry: handleSearch,
+        onCancel: handleCancel,
       }),
     })
   );
+}
+
+/** Draw `route` on the map and fit to it, only when it differs from what is already drawn. */
+function showOnMap(route) {
+  const id = route?.id ?? null;
+  if (id === shownRouteId) return;
+  shownRouteId = id;
+  map.showRoute(route);
+  if (route) map.fitTo(route);
+}
+
+function handleBack() {
+  if (state.tab === 'saved') {
+    state.savedScreen = 'list';
+  } else {
+    if (state.routesStatus === 'loading') abortSearch();
+    state.planScreen = 'form';
+  }
+  render();
+}
+
+function handleCancel() {
+  abortSearch();
+  state.planScreen = 'form';
+  render();
+}
+
+function abortSearch() {
+  searchController?.abort();
+  searchController = null;
+  state.routesStatus = 'idle';
 }
 
 function handleModeChange(mode) {
@@ -185,6 +242,15 @@ function handleDistanceChange(value) {
 }
 
 async function handleSearch() {
+  if (!state.start) {
+    showToast('Kies eerst een startpunt.');
+    openStartPicker();
+    return;
+  }
+  searchController?.abort();
+  const controller = new AbortController();
+  searchController = controller;
+
   state.tab = 'plan';
   state.planScreen = 'results';
   state.routesStatus = 'loading';
@@ -195,27 +261,28 @@ async function handleSearch() {
 
   try {
     const routes = await generateRoutes({
-      start: state.start || FALLBACK_START,
+      start: state.start,
       distanceKm: state.distanceByMode[state.mode],
       mode: state.mode,
       provider,
       count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
       toleranceKm: defaultToleranceKm(state.mode),
       maxProviderCalls: maxProviderCallsFor(state.distanceByMode[state.mode]),
-      onProgress: handleProgress,
+      onProgress: (info) => {
+        if (controller === searchController) handleProgress(info);
+      },
+      signal: controller.signal,
     });
+    if (controller !== searchController) return;
     state.routesStatus = 'ready';
     state.routes = routes;
-    const selected = routes[0] ?? null;
-    state.selectedRouteId = selected?.id ?? null;
-    if (selected) {
-      map.showRoute(selected);
-      map.fitTo(selected);
-    }
+    state.selectedRouteId = routes[0]?.id ?? null;
   } catch (err) {
+    if (err?.code === 'ABORTED' || controller !== searchController) return;
     state.routesStatus = 'error';
     state.errorMessage = errorMessageFor(err);
   }
+  searchController = null;
   render();
 }
 
@@ -230,7 +297,13 @@ function handleProgress(info) {
 }
 
 function errorMessageFor(err) {
+  if (navigator.onLine === false) {
+    return 'Je bent offline. Controleer je internetverbinding en probeer het opnieuw.';
+  }
   switch (err?.code) {
+    case 'NO_ANSWER':
+      return 'Google gaf geen antwoord. Controleer je internetverbinding en probeer het opnieuw.';
+    case 'NO_ROUTES':
     case 'ZERO_RESULTS':
       return 'Geen routes gevonden voor deze afstand en locatie. Probeer een andere afstand.';
     case 'OVER_QUERY_LIMIT':
@@ -244,16 +317,17 @@ function errorMessageFor(err) {
 
 function handleSelectRoute(id) {
   state.selectedRouteId = id;
-  const route = state.routes.find((r) => r.id === id);
-  if (route) {
-    map.showRoute(route);
-    map.fitTo(route);
-  }
   render();
 }
 
 function handleSave(route) {
-  saveRoute(route);
+  try {
+    saveRoute(route);
+  } catch (err) {
+    console.error('Saving the route failed', err);
+    showToast('Opslaan lukte niet. In een privévenster of met een volle opslag kan Safari niets bewaren.', { durationMs: 8000 });
+    return;
+  }
   render();
 }
 
@@ -262,18 +336,20 @@ function handleOpenMaps(route) {
 }
 
 function handleDelete(route) {
-  deleteRoute(route.id);
+  try {
+    deleteRoute(route.id);
+  } catch (err) {
+    console.error('Deleting the route failed', err);
+    showToast('Verwijderen lukte niet. Probeer het opnieuw.');
+    return;
+  }
   render();
 }
 
 function openSavedDetail(route) {
   state.tab = 'saved';
   state.savedScreen = 'detail';
-  state.routesStatus = 'ready';
-  state.routes = [route];
-  state.selectedRouteId = route.id;
-  map.showRoute(route);
-  map.fitTo(route);
+  state.savedRoute = route;
   render();
 }
 

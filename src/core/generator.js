@@ -62,6 +62,10 @@ export function maxProviderCallsFor(distanceKm) {
   return distanceKm >= SHORT_LOOP_KM ? LONG_CALL_CAP : SHORT_CALL_CAP;
 }
 
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw Object.assign(new Error('Route search aborted'), { name: 'AbortError', code: 'ABORTED' });
+}
+
 /** Absolute distance tolerance per mode: walk/run ±0.3 km, bike ±1.0 km. */
 export function defaultToleranceKm(mode) {
   return mode === 'bike' ? 1.0 : 0.3;
@@ -350,7 +354,8 @@ function pointCountsFor(target) {
  * beyond max(30 m, 1 % of its length) — only a start stem (a cul-de-sac the loop must leave and
  * re-enter) is allowed. At most `maxProviderCalls` provider requests are made; identical requests
  * are sent once. Throws only on REQUEST_DENIED / OVER_QUERY_LIMIT or when no route at all could
- * be produced. onProgress receives { done, total, calls }.
+ * be produced (code NO_ANSWER when no request got an answer at all, else NO_ROUTES). onProgress receives { done, total, calls }. An aborted `signal` stops the search:
+ * no new requests are sent and the promise rejects with an error whose code is 'ABORTED'.
  *
  * Per candidate: at most `maxAttemptsPerRoute` requests. After the first one, a result whose loop
  * (spurs cut out) is at least 60 % of the target is re-requested with via points sampled along
@@ -371,6 +376,7 @@ export async function generateRoutes({
   maxProviderCalls = 60,
   rng = Math.random,
   onProgress,
+  signal,
 }) {
   if (!provider || typeof provider.route !== 'function') {
     throw new Error('generateRoutes: provider.route is required');
@@ -394,6 +400,8 @@ export async function generateRoutes({
   let done = 0;
   let total = n;
   let calls = 0;
+  let answered = 0; // requests that came back with a route
+  let unknownFailures = 0; // requests that failed for another reason than ZERO_RESULTS (network, timeout)
   let minStemKm = Infinity; // shortest start stem seen so far: the unavoidable one
   let ratioSum = 0; // measured road length / geometric polygon length, learned as we go
   let ratioCount = 0;
@@ -475,6 +483,7 @@ export async function generateRoutes({
   /** One provider request through the cache; counts towards the budget only when really sent. */
   const sentKeys = new Set();
   async function request(waypoints) {
+    throwIfAborted(signal);
     const key = requestKey({ start, waypoints, mode });
     const hit = sentKeys.has(key);
     if (!hit) {
@@ -482,13 +491,17 @@ export async function generateRoutes({
       calls++;
       sentKeys.add(key);
     }
+    let outcome;
     try {
-      const result = await cached.route({ start, waypoints, mode });
-      return { result, hit };
+      outcome = { result: await cached.route({ start, waypoints, mode }), hit };
+      answered++;
     } catch (e) {
       if (e && FATAL_CODES.has(e.code)) throw e;
-      return { failed: true, hit }; // ZERO_RESULTS / UNKNOWN: give up on this candidate
+      if (!e || e.code !== 'ZERO_RESULTS') unknownFailures++;
+      outcome = { failed: true, hit }; // ZERO_RESULTS / UNKNOWN: give up on this candidate
     }
+    throwIfAborted(signal); // a request already in flight cannot be recalled; its answer is dropped
+    return outcome;
   }
 
   async function measureCandidate(candidate) {
@@ -607,8 +620,10 @@ export async function generateRoutes({
   }
 
   if (survivors.length === 0) {
-    const err = new Error('Geen routes gevonden voor dit startpunt en deze afstand');
-    err.code = 'NO_ROUTES';
+    // Not one answer and at least one unexplained failure: the network, not the map, is the problem.
+    const noAnswer = answered === 0 && unknownFailures > 0;
+    const err = new Error(noAnswer ? 'De routeplanner gaf geen antwoord' : 'Geen routes gevonden voor dit startpunt en deze afstand');
+    err.code = noAnswer ? 'NO_ANSWER' : 'NO_ROUTES';
     throw err;
   }
 
