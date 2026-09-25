@@ -34,6 +34,11 @@ function createSwitchRow({ label, detail, checked, onChange }) {
   input.className = 'switch';
   input.setAttribute('role', 'switch');
   input.checked = checked;
+  // Name = the label only; the explanation is read as a description.
+  sub.id = 'switch-detail-' + Math.random().toString(36).slice(2, 8);
+  input.setAttribute('aria-describedby', sub.id);
+  title.id = sub.id + '-label';
+  input.setAttribute('aria-labelledby', title.id);
   input.addEventListener('change', () => onChange(input.checked));
 
   row.append(text, input);

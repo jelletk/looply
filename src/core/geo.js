@@ -66,8 +66,12 @@ export function pathLengthKm(path) {
  * then every point is snapped to a `cellKm` grid. Result = |A ∩ B| / min(|A|, |B|).
  */
 export function routeOverlap(pathA, pathB, cellKm = 0.1) {
-  const cellsA = pathCells(pathA, cellKm);
-  const cellsB = pathCells(pathB, cellKm);
+  if (!Array.isArray(pathA) || !pathA.length || !Array.isArray(pathB) || !pathB.length) return 0;
+  // One grid for both paths: with a grid per path, routes from starts a few km apart would snap
+  // the same street to different cells. Whole degrees keep the result symmetric in A and B.
+  const refLat = Math.round(pathA[0].lat);
+  const cellsA = pathCells(pathA, cellKm, refLat);
+  const cellsB = pathCells(pathB, cellKm, refLat);
   const smallest = Math.min(cellsA.size, cellsB.size);
   if (smallest === 0) return 0;
   let shared = 0;
@@ -77,10 +81,10 @@ export function routeOverlap(pathA, pathB, cellKm = 0.1) {
   return shared / smallest;
 }
 
-function pathCells(path, cellKm) {
+function pathCells(path, cellKm, refLat = path?.[0]?.lat) {
   const cells = new Set();
   if (!Array.isArray(path) || path.length === 0) return cells;
-  const key = cellKeyFactory(path[0].lat, cellKm);
+  const key = cellKeyFactory(refLat, cellKm);
   for (const p of densifyPath(path, cellKm)) cells.add(key(p));
   return cells;
 }

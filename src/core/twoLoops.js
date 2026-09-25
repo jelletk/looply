@@ -61,19 +61,22 @@ export function pairLoops(loops, distanceKm, toleranceKm) {
 export async function generateTwoLoopRoutes(options) {
   const { start, distanceKm, mode = 'walk' } = options;
   const toleranceKm = options.toleranceKm ?? defaultToleranceKm(mode);
-  const halves = await generateRoutes({
-    ...options,
-    distanceKm: distanceKm / 2,
-    toleranceKm: toleranceKm * HALF_TOLERANCE_FACTOR,
-  });
+  // NO_PAIRS instead of NO_ROUTES, so the app can suggest switching "close to home" off.
+  const noPairs = () => Object.assign(new Error('Geen twee rondjes gevonden die samen deze afstand halen'), { code: 'NO_PAIRS' });
+  let halves;
+  try {
+    halves = await generateRoutes({
+      ...options,
+      distanceKm: distanceKm / 2,
+      toleranceKm: toleranceKm * HALF_TOLERANCE_FACTOR,
+    });
+  } catch (e) {
+    throw e?.code === 'NO_ROUTES' ? noPairs() : e;
+  }
   const fresh = new Set(halves.filter((h) => h.fresh !== false));
 
   const pairs = pairLoops(halves, distanceKm, toleranceKm);
-  if (pairs.length === 0) {
-    const err = new Error('Geen twee rondjes gevonden die samen deze afstand halen');
-    err.code = 'NO_ROUTES';
-    throw err;
-  }
+  if (pairs.length === 0) throw noPairs();
 
   return pairs.map(({ a, b }) => {
     const total = a.distanceKm + b.distanceKm;

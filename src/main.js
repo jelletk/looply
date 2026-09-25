@@ -53,7 +53,7 @@ let searchController = null; // AbortController of the search in progress
 let shownRouteId; // route currently drawn on the map (undefined: nothing drawn yet)
 let startVersion = 0; // bumped on every start change, so a late location fix cannot overwrite a newer choice
 
-const settingsStore = createSettingsStore();
+const settingsStore = openSettingsStore();
 let settings = settingsStore.load(); // { home, closeToHome, speeds }
 setSpeeds(settings.speeds);
 
@@ -169,7 +169,8 @@ function renderScreenLayer() {
         currentStart: state.start ? { latLng: state.start, label: state.startLabel } : null,
         onSetHome: handleSetHome,
         onClearHome: () => updateSettings({ home: null }),
-        onSpeedChange: (mode, kmh) => updateSettings({ speeds: { [mode]: kmh } }),
+        onSpeedChange: (mode, kmh, buttonLabel) =>
+          updateSettings({ speeds: { [mode]: kmh } }, { refocus: `[aria-label="${buttonLabel}"]:not(:disabled)` }),
       })
     );
     return;
@@ -229,7 +230,7 @@ function renderScreenLayer() {
         onSelectRoute: handleSelectRoute,
         onSave: handleSave,
         onOpenMaps: handleOpenMaps,
-        onRetry: () => runSearch(),
+        onRetry: () => runSearch({ again: lastSearchAgain }),
         onCancel: handleCancel,
         onAgain: !inSaved && status === 'ready' ? () => runSearch({ again: true }) : undefined,
       }),
@@ -278,17 +279,32 @@ function handleDistanceChange(value) {
   state.distanceByMode[state.mode] = value;
 }
 
-/** Save a settings change; the UI follows the stored result. */
-function updateSettings(patch, { rerender = true } = {}) {
+/** Settings store; when Safari blocks storage altogether, settings live in memory for this session. */
+function openSettingsStore() {
   try {
-    settings = settingsStore.update(patch);
+    return createSettingsStore(window.localStorage);
+  } catch {
+    const memory = {};
+    return createSettingsStore({ getItem: (k) => memory[k] ?? null, setItem: (k, v) => (memory[k] = String(v)) });
+  }
+}
+
+/** Save a settings change; the UI follows the stored result. */
+function updateSettings(patch, { rerender = true, refocus } = {}) {
+  // Merge on what is in memory, so a change that could not be stored is not undone by the next one.
+  const next = { ...settings, ...patch, speeds: { ...settings.speeds, ...(patch.speeds || {}) } };
+  try {
+    settings = settingsStore.update(next);
   } catch (err) {
     console.error('Saving settings failed', err);
-    settings = { ...settings, ...patch, speeds: { ...settings.speeds, ...(patch.speeds || {}) } };
+    settings = next;
     showToast('Deze instelling kon niet worden bewaard; hij geldt alleen tot je de app sluit.');
   }
   setSpeeds(settings.speeds);
-  if (rerender) render();
+  if (!rerender) return;
+  render();
+  // The page is rebuilt: put focus back on the control the user was on (VoiceOver would lose it).
+  if (refocus) (screenLayer.querySelector(refocus) ?? screenLayer.querySelector('.large-title'))?.focus();
 }
 
 function handleSetHome() {
@@ -303,7 +319,10 @@ function handleSetHome() {
  * screen, so those streets are avoided too. Saved routes of this mode are always avoided, so a
  * search favours loops you have not saved yet.
  */
+let lastSearchAgain = false; // a retry repeats the kind of search that failed
+
 async function runSearch({ again = false } = {}) {
+  lastSearchAgain = again;
   if (!state.start) {
     showToast('Kies eerst een startpunt.');
     openStartPicker();
@@ -374,6 +393,8 @@ function errorMessageFor(err) {
   switch (err?.code) {
     case 'NO_ANSWER':
       return 'Google gaf geen antwoord. Controleer je internetverbinding en probeer het opnieuw.';
+    case 'NO_PAIRS':
+      return 'Geen twee lussen gevonden die samen deze afstand halen. Probeer een andere afstand of zet "Dicht bij huis" uit.';
     case 'NO_ROUTES':
     case 'ZERO_RESULTS':
       return 'Geen routes gevonden voor deze afstand en locatie. Probeer een andere afstand.';

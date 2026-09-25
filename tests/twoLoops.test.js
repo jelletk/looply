@@ -100,3 +100,21 @@ describe('settings store', () => {
     expect(createSettingsStore(storage).load().speeds.walk).toBe(5);
   });
 });
+
+describe('two-loop errors and overlap across starts', () => {
+  it('reports NO_PAIRS when the halves cannot be paired', async () => {
+    const provider = { route: async () => { throw Object.assign(new Error('none'), { code: 'ZERO_RESULTS' }); } };
+    await expect(generateTwoLoopRoutes({ start, distanceKm: 5, provider, rng: seeded(2) })).rejects.toMatchObject({ code: 'NO_PAIRS' });
+  });
+
+  it('measures the same street as shared when the two routes start 3 km apart on it', async () => {
+    const { routeOverlap } = await import('../src/core/geo.js');
+    // One 3 km north-south street, walked from its south end and from its north end: the paths
+    // start at latitudes 3 km apart, which used to put them on grids that no longer lined up.
+    const street = Array.from({ length: 31 }, (_, i) => ({ lat: 52.1 + i * 0.0009, lng: 5.1 }));
+    const fromSouth = street;
+    const fromNorth = street.slice().reverse();
+    expect(routeOverlap(fromSouth, fromNorth)).toBeGreaterThan(0.95);
+    expect(routeOverlap(fromNorth, fromSouth)).toBeCloseTo(routeOverlap(fromSouth, fromNorth), 6);
+  });
+});

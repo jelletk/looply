@@ -2,7 +2,7 @@
 
 export const ICON_SETTINGS = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h10m4 0h2M4 17h2m4 0h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="17" r="2.2" stroke="currentColor" stroke-width="1.6"/></svg>`;
 
-export const ICON_MAP =`<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 20l-6-2V5l6 2m0 13l6-2m-6 2V7m6 11l6 2V5l-6-2m0 15V5m0 0L9 7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+export const ICON_MAP = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 20l-6-2V5l6 2m0 13l6-2m-6 2V7m6 11l6 2V5l-6-2m0 15V5m0 0L9 7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 
 export const ICON_BOOKMARK = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-3.6L6 21V4.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 

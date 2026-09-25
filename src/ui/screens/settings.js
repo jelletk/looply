@@ -54,6 +54,7 @@ export function renderSettings({ settings, currentStart, onSetHome, onClearHome,
   const header = document.createElement('h1');
   header.className = 'large-title';
   header.textContent = 'Instellingen';
+  header.tabIndex = -1; // focus target after a re-render when the tapped control is gone
   page.appendChild(header);
 
   // Thuis
@@ -117,8 +118,12 @@ export function renderSettings({ settings, currentStart, onSetHome, onClearHome,
     const slower = stepSpeed(row, kmh, -1);
     const faster = stepSpeed(row, kmh, 1);
     stepper.append(
-      stepperButton('−', `${row.label} langzamer`, Math.abs(slower - kmh) < 1e-9, () => onSpeedChange(row.mode, slower)),
-      stepperButton('+', `${row.label} sneller`, Math.abs(faster - kmh) < 1e-9, () => onSpeedChange(row.mode, faster))
+      stepperButton('−', `${row.label} langzamer`, Math.abs(slower - kmh) < 1e-9, () =>
+        onSpeedChange(row.mode, slower, `${row.label} langzamer`)
+      ),
+      stepperButton('+', `${row.label} sneller`, Math.abs(faster - kmh) < 1e-9, () =>
+        onSpeedChange(row.mode, faster, `${row.label} sneller`)
+      )
     );
 
     r.append(label, value, stepper);
