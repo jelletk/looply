@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   generateRoutes,
+  maxProviderCallsFor,
   buildLoopWaypoints,
   compassLabel,
   defaultToleranceKm,
@@ -335,8 +336,8 @@ describe('generateRoutes with the mock provider', () => {
     for (const r of routes) expect(Math.abs(r.distanceKm - 5)).toBeLessThanOrEqual(0.1);
   });
 
-  it('repairs spurs: with spurEvery 3 every returned route is a clean loop', async () => {
-    const provider = createMockProvider({ delayMs: 0, spurEvery: 3 });
+  it('repairs spurs: with spurEvery 4 every returned route is a clean loop', async () => {
+    const provider = createMockProvider({ delayMs: 0, spurEvery: 4 });
     const routeSpy = vi.spyOn(provider, 'route');
     const routes = await generateRoutes({ start, distanceKm: 5, mode: 'walk', provider, rng: seeded(21) });
     expect(routes.length).toBeGreaterThanOrEqual(5);
@@ -405,6 +406,13 @@ describe('generateRoutes with the mock provider', () => {
     }
     const last = progress.mock.calls.at(-1)[0];
     expect(last.calls).toBeLessThanOrEqual(60);
+  });
+
+  it('budgets 60 requests below 3 km and 120 from 3 km', () => {
+    expect(maxProviderCallsFor(1.5)).toBe(60);
+    expect(maxProviderCallsFor(2.99)).toBe(60);
+    expect(maxProviderCallsFor(3)).toBe(120);
+    expect(maxProviderCallsFor(30)).toBe(120);
   });
 
   it('never makes more than maxProviderCalls requests and reports the count', async () => {

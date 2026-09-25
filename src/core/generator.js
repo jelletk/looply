@@ -19,7 +19,9 @@ const COMPASS = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'];
 const MIN_ROUTES = 5;
 const MAX_PASSES = 6; // the call budget usually ends the search earlier
 const MIN_CANDIDATES_PER_PASS = 8;
-const CONCURRENCY = 3;
+const CONCURRENCY = 5; // requests in flight; the call cap is checked per request, so this only changes wall time
+const SHORT_CALL_CAP = 60;
+const LONG_CALL_CAP = 120; // from SHORT_LOOP_KM up: longer loops double back more often and need more tries
 const FATAL_CODES = new Set(['REQUEST_DENIED', 'OVER_QUERY_LIMIT']);
 // Waypoints per pass. Two-point triangles never produced a clean loop in real tests, so they are
 // gone; 4–5 points keep the legs short, which keeps the provider close to the intended circle.
@@ -51,6 +53,11 @@ const CLOSE_FACTOR = 2; // a clean loop within 2 × tolerance (or a fitting one 
 export function compassLabel(bearing) {
   const idx = Math.round(normalizeBearing(bearing) / 45) % 8;
   return COMPASS[idx];
+}
+
+/** Provider request budget for one search: 60 below 3 km, 120 from 3 km (far below the free monthly tier). */
+export function maxProviderCallsFor(distanceKm) {
+  return distanceKm >= SHORT_LOOP_KM ? LONG_CALL_CAP : SHORT_CALL_CAP;
 }
 
 /** Absolute distance tolerance per mode: walk/run ±0.3 km, bike ±1.0 km. */

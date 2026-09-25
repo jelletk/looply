@@ -3,6 +3,7 @@ import {
   createGoogleProvider,
   generateRoutes,
   defaultToleranceKm,
+  maxProviderCallsFor,
   googleMapsDirectionsUrl,
   listRoutes,
   saveRoute,
@@ -200,9 +201,7 @@ async function handleSearch() {
       provider,
       count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
       toleranceKm: defaultToleranceKm(state.mode),
-      // Longer loops get rejected more often (more chances to double back), so give them
-      // a bigger request budget. 120 calls is still far below the free monthly Directions tier.
-      maxProviderCalls: state.distanceByMode[state.mode] >= 3 ? 120 : 60,
+      maxProviderCalls: maxProviderCallsFor(state.distanceByMode[state.mode]),
       onProgress: handleProgress,
     });
     state.routesStatus = 'ready';
