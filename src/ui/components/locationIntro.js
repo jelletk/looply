@@ -30,7 +30,9 @@ export function openLocationIntro({ onAllow, onChoose, storage = window.localSto
   const sheet = document.createElement('div');
   sheet.className = 'sheet start-sheet location-intro';
   sheet.setAttribute('role', 'dialog');
+  sheet.setAttribute('aria-modal', 'true');
   sheet.setAttribute('aria-labelledby', 'location-intro-title');
+  sheet.setAttribute('aria-describedby', 'location-intro-text');
 
   const body = document.createElement('div');
   body.className = 'sheet__body';
@@ -46,9 +48,10 @@ export function openLocationIntro({ onAllow, onChoose, storage = window.localSto
   title.textContent = 'Rondjes vanaf waar je bent';
 
   const text = document.createElement('p');
+  text.id = 'location-intro-text';
   text.className = 'location-intro__text';
   text.textContent =
-    'Looply gebruikt je locatie alleen als startpunt. Dat punt gaat naar Google om de routes te berekenen; verder blijft alles op je telefoon.';
+    'Looply gebruikt je locatie alleen als startpunt. Je startpunt en de routes gaan naar Google om de kaart en de rondjes te tonen; opgeslagen routes blijven op je telefoon.';
 
   const allow = document.createElement('button');
   allow.type = 'button';

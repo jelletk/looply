@@ -47,6 +47,7 @@ let map = null;
 let provider = null;
 let searchController = null; // AbortController of the search in progress
 let shownRouteId; // route currently drawn on the map (undefined: nothing drawn yet)
+let startVersion = 0; // bumped on every start change, so a late location fix cannot overwrite a newer choice
 
 const app = document.getElementById('app');
 const mapContainer = document.createElement('div');
@@ -88,9 +89,15 @@ function resolveCurrentLocation() {
     showToast('Dit toestel geeft geen locatie door. Kies zelf een startpunt.');
     return;
   }
+  // A start picked by hand while the fix was pending wins; the late fix (or its error) is dropped.
+  const askedAt = startVersion;
   navigator.geolocation.getCurrentPosition(
-    (pos) => setStart({ lat: pos.coords.latitude, lng: pos.coords.longitude }, 'Huidige locatie'),
-    (err) => showToast(locationErrorMessage(err), { durationMs: 8000 }),
+    (pos) => {
+      if (startVersion === askedAt) setStart({ lat: pos.coords.latitude, lng: pos.coords.longitude }, 'Huidige locatie');
+    },
+    (err) => {
+      if (startVersion === askedAt) showToast(locationErrorMessage(err), { durationMs: 8000 });
+    },
     { timeout: 10000 }
   );
 }
@@ -98,7 +105,7 @@ function resolveCurrentLocation() {
 function locationErrorMessage(err) {
   switch (err?.code) {
     case 1: // PERMISSION_DENIED
-      return 'Looply mag je locatie niet gebruiken. Zet het aan via Instellingen › Privacy en beveiliging › Locatievoorzieningen, of kies zelf een startpunt.';
+      return 'Looply mag je locatie niet gebruiken. Sta locatie toe voor Safari-websites (Instellingen › Privacy en beveiliging › Locatievoorzieningen), of kies zelf een startpunt.';
     case 3: // TIMEOUT
       return 'Je locatie bepalen duurde te lang. Probeer het opnieuw of kies zelf een startpunt.';
     default:
@@ -107,6 +114,7 @@ function locationErrorMessage(err) {
 }
 
 function setStart(latLng, label) {
+  startVersion++;
   state.start = latLng;
   state.startLabel = label;
   map.setStart(latLng);
@@ -127,7 +135,10 @@ function renderTabBar() {
       active: state.tab,
       onSelect: (tab) => {
         if (state.tab === tab) {
-          if (tab === 'plan') state.planScreen = 'form';
+          if (tab === 'plan') {
+            if (state.routesStatus === 'loading') abortSearch();
+            state.planScreen = 'form';
+          }
           if (tab === 'saved') state.savedScreen = 'list';
         }
         state.tab = tab;
@@ -293,7 +304,10 @@ function handleProgress(info) {
   state.progressText = Number.isFinite(done) && Number.isFinite(total)
     ? `Route ${done} van ${total}…`
     : 'Routes zoeken…';
-  render();
+  // Only the text changes: rebuilding the screen on every tick would swap out the Annuleren and
+  // back buttons mid-tap (iOS drops the tap) and reset a slider or list the user is touching.
+  const label = screenLayer.querySelector('.results-sheet__progress');
+  if (label) label.textContent = state.progressText;
 }
 
 function errorMessageFor(err) {

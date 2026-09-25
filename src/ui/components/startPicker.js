@@ -118,6 +118,9 @@ export function openStartSheet({ mode, google, onUseCurrentLocation, onCoords, o
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submitManual();
     });
+    input.addEventListener('input', () => {
+      error.hidden = true;
+    });
     submitBtn.addEventListener('click', submitManual);
 
     fieldWrap.append(input, error, submitBtn);

@@ -1,6 +1,16 @@
 // Google Maps DirectionsService adapter.
 
-const KNOWN_CODES = new Set(['ZERO_RESULTS', 'OVER_QUERY_LIMIT', 'REQUEST_DENIED']);
+// Statuses Google answers with; anything else (network failure, no reply in time) becomes UNKNOWN.
+const KNOWN_CODES = new Set([
+  'ZERO_RESULTS',
+  'OVER_QUERY_LIMIT',
+  'REQUEST_DENIED',
+  'INVALID_REQUEST',
+  'NOT_FOUND',
+  'MAX_WAYPOINTS_EXCEEDED',
+  'MAX_ROUTE_LENGTH_EXCEEDED',
+]);
+const REQUEST_TIMEOUT_MS = 20000; // a request with no reply by then counts as failed, so a search can never hang
 
 function providerError(status, message) {
   const code = KNOWN_CODES.has(status) ? status : 'UNKNOWN';
@@ -14,9 +24,15 @@ function providerError(status, message) {
 function callRoute(service, request) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(providerError('UNKNOWN', 'Directions request timed out'));
+    }, REQUEST_TIMEOUT_MS);
     const done = (result, status) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       if (status && status !== 'OK') {
         reject(providerError(status));
       } else if (result && result.status && result.status !== 'OK') {
@@ -33,6 +49,7 @@ function callRoute(service, request) {
       maybePromise = service.route(request, (result, status) => done(result, status));
     } catch (e) {
       settled = true;
+      clearTimeout(timer);
       reject(normaliseThrown(e));
       return;
     }
@@ -42,6 +59,7 @@ function callRoute(service, request) {
         (e) => {
           if (settled) return;
           settled = true;
+          clearTimeout(timer);
           reject(normaliseThrown(e));
         },
       );

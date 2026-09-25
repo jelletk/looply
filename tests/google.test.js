@@ -127,7 +127,13 @@ describe('createGoogleProvider', () => {
       createGoogleProvider(limit.google).route({ start, waypoints, mode: 'walk' }),
     ).rejects.toMatchObject({ code: 'OVER_QUERY_LIMIT' });
 
-    const weird = fakeGoogle((req, cb) => cb(null, 'NOT_FOUND'));
+    // Google's own statuses keep their name, so "no reply" (UNKNOWN) really means no reply.
+    const notFound = fakeGoogle((req, cb) => cb(null, 'NOT_FOUND'));
+    await expect(
+      createGoogleProvider(notFound.google).route({ start, waypoints, mode: 'walk' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const weird = fakeGoogle((req, cb) => cb(null, 'SOMETHING_NEW'));
     await expect(
       createGoogleProvider(weird.google).route({ start, waypoints, mode: 'walk' }),
     ).rejects.toMatchObject({ code: 'UNKNOWN' });
@@ -138,6 +144,19 @@ describe('createGoogleProvider', () => {
     await expect(
       createGoogleProvider(thrown.google).route({ start, waypoints, mode: 'walk' }),
     ).rejects.toMatchObject({ code: 'UNKNOWN' });
+  });
+
+  it('fails a request that gets no reply within 20 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const silent = fakeGoogle(() => new Promise(() => {}));
+      const pending = createGoogleProvider(silent.google).route({ start, waypoints, mode: 'walk' });
+      const check = expect(pending).rejects.toMatchObject({ code: 'UNKNOWN' });
+      await vi.advanceTimersByTimeAsync(20000);
+      await check;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('throws when google.maps is missing', () => {

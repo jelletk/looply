@@ -401,7 +401,7 @@ export async function generateRoutes({
   let total = n;
   let calls = 0;
   let answered = 0; // requests that came back with a route
-  let unknownFailures = 0; // requests that failed for another reason than ZERO_RESULTS (network, timeout)
+  let unknownFailures = 0; // requests that got no reply from the provider at all (network, timeout)
   let minStemKm = Infinity; // shortest start stem seen so far: the unavoidable one
   let ratioSum = 0; // measured road length / geometric polygon length, learned as we go
   let ratioCount = 0;
@@ -497,7 +497,7 @@ export async function generateRoutes({
       answered++;
     } catch (e) {
       if (e && FATAL_CODES.has(e.code)) throw e;
-      if (!e || e.code !== 'ZERO_RESULTS') unknownFailures++;
+      if (!e || !e.code || e.code === 'UNKNOWN') unknownFailures++; // no reply: network or timeout
       outcome = { failed: true, hit }; // ZERO_RESULTS / UNKNOWN: give up on this candidate
     }
     throwIfAborted(signal); // a request already in flight cannot be recalled; its answer is dropped
