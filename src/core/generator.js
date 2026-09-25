@@ -19,7 +19,9 @@ const COMPASS = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'];
 const MIN_ROUTES = 5;
 const MAX_PASSES = 6; // the call budget usually ends the search earlier
 const MIN_CANDIDATES_PER_PASS = 8;
-const CONCURRENCY = 5; // requests in flight; the call cap is checked per request, so this only changes wall time
+// Requests in flight. The call cap is checked per request and always holds; the order in which
+// candidates finish (and so the scale factors learned along the way) does depend on this.
+const CONCURRENCY = 5;
 const SHORT_CALL_CAP = 60;
 const LONG_CALL_CAP = 120; // from SHORT_LOOP_KM up: longer loops double back more often and need more tries
 const FATAL_CODES = new Set(['REQUEST_DENIED', 'OVER_QUERY_LIMIT']);
