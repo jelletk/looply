@@ -14,8 +14,42 @@ export const DISTANCE_RANGES = {
   bike: { min: 5, max: 100, step: 1 },
 };
 
-/** Bottom sheet content for the plan screen: mode segmented control, distance slider, search button. */
-export function renderPlanSheet({ mode, distanceKm, onModeChange, onDistanceChange, onSearch }) {
+/** iOS-style switch row: label + explanation on the left, switch on the right. The whole row is the tap target. */
+function createSwitchRow({ label, detail, checked, onChange }) {
+  const row = document.createElement('label');
+  row.className = 'switch-row';
+
+  const text = document.createElement('span');
+  text.className = 'switch-row__text';
+  const title = document.createElement('span');
+  title.className = 'switch-row__label';
+  title.textContent = label;
+  const sub = document.createElement('span');
+  sub.className = 'switch-row__detail';
+  sub.textContent = detail;
+  text.append(title, sub);
+
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.className = 'switch';
+  input.setAttribute('role', 'switch');
+  input.checked = checked;
+  input.addEventListener('change', () => onChange(input.checked));
+
+  row.append(text, input);
+  return row;
+}
+
+/** Bottom sheet content for the plan screen: mode segmented control, distance slider, close-to-home switch, search button. */
+export function renderPlanSheet({
+  mode,
+  distanceKm,
+  closeToHome,
+  onModeChange,
+  onDistanceChange,
+  onCloseToHomeChange,
+  onSearch,
+}) {
   const wrap = document.createElement('div');
   wrap.className = 'plan-sheet';
 
@@ -30,6 +64,15 @@ export function renderPlanSheet({ mode, distanceKm, onModeChange, onDistanceChan
       value: distanceKm,
       format: formatKm,
       onChange: onDistanceChange,
+    })
+  );
+
+  wrap.appendChild(
+    createSwitchRow({
+      label: 'Dicht bij huis',
+      detail: 'Twee kleinere lussen; halverwege kom je langs je startpunt.',
+      checked: closeToHome,
+      onChange: onCloseToHomeChange,
     })
   );
 

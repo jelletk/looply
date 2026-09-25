@@ -13,6 +13,7 @@ export function renderResultsSheet({
   onOpenMaps,
   onRetry,
   onCancel,
+  onAgain, // "Andere rondjes": new search away from these streets (plan tab only)
 }) {
   const wrap = document.createElement('div');
   wrap.className = 'results-sheet';
@@ -89,6 +90,15 @@ export function renderResultsSheet({
     actions.appendChild(mapsBtn);
 
     wrap.appendChild(actions);
+  }
+
+  if (onAgain) {
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.className = 'btn btn--plain btn--full';
+    again.textContent = 'Andere rondjes';
+    again.addEventListener('click', onAgain);
+    wrap.appendChild(again);
   }
 
   return wrap;

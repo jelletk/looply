@@ -12,7 +12,17 @@ export {
 export { generateRoutes, buildLoopWaypoints, compassLabel, defaultToleranceKm, maxProviderCallsFor } from './generator.js';
 export { createGoogleProvider, decodePolyline } from './providers/google.js';
 export { createMockProvider } from './providers/mock.js';
-export { estimateDurationMin, formatDuration, formatKm } from './pace.js';
+export { generateTwoLoopRoutes, maxDistanceFromStartKm } from './twoLoops.js';
+export {
+  estimateDurationMin,
+  formatDuration,
+  formatKm,
+  formatPace,
+  formatShortDistance,
+  formatSpeed,
+  setSpeeds,
+} from './pace.js';
+export { createSettingsStore, DEFAULT_SETTINGS } from './settings.js';
 export {
   createRouteStore,
   listRoutes,

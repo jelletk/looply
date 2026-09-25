@@ -23,7 +23,7 @@ export function createStartPill({ label, onTap }) {
  * Opens a sheet with "Huidige locatie gebruiken" plus a search field.
  * Google mode uses PlaceAutocompleteElement; mock mode is a plain "lat, lng" text field.
  */
-export function openStartSheet({ mode, google, onUseCurrentLocation, onCoords, onPlace }) {
+export function openStartSheet({ mode, google, home, onUseCurrentLocation, onCoords, onPlace, onHome }) {
   const backdrop = document.createElement('div');
   backdrop.className = 'sheet-backdrop';
 
@@ -36,6 +36,19 @@ export function openStartSheet({ mode, google, onUseCurrentLocation, onCoords, o
 
   const body = document.createElement('div');
   body.className = 'sheet__body';
+
+  if (home) {
+    const homeBtn = document.createElement('button');
+    homeBtn.type = 'button';
+    homeBtn.className = 'btn btn--primary btn--full start-sheet__home';
+    homeBtn.textContent = 'Thuis';
+    homeBtn.setAttribute('aria-label', `Thuis: ${home.label}`);
+    homeBtn.addEventListener('click', () => {
+      onHome(home);
+      close();
+    });
+    body.appendChild(homeBtn);
+  }
 
   const useCurrentBtn = document.createElement('button');
   useCurrentBtn.type = 'button';

@@ -304,6 +304,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%; /* flex items shrink-wrap their text; without this the ellipsis never kicks in */
 }
 
 .route-card__name {
@@ -563,4 +564,143 @@
 .start-sheet__error {
   font-size: 15px;
   color: var(--color-danger);
+}
+
+/* Switch row ("Dicht bij huis") */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  margin-bottom: var(--space-4);
+  cursor: pointer;
+}
+
+.switch-row__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.switch-row__label {
+  font-size: 17px;
+  letter-spacing: -0.374px;
+}
+
+.switch-row__detail {
+  font-size: 13px;
+  color: var(--color-ink-secondary);
+}
+
+/* iOS switch: 51 × 31 track, green when on (the system colour for switches) */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 51px;
+  height: 31px;
+  border-radius: var(--radius-pill);
+  background: var(--color-track);
+  transition: background 0.2s ease;
+  cursor: pointer;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.switch:checked {
+  background: #34c759;
+}
+
+.switch:checked::after {
+  transform: translateX(20px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--color-accent-focus);
+  outline-offset: 2px;
+}
+
+/* Settings page */
+.settings-section {
+  margin-bottom: var(--space-5);
+}
+
+.settings-section__title {
+  font-size: 13px;
+  font-weight: var(--weight-regular);
+  text-transform: uppercase;
+  color: var(--color-ink-secondary);
+  margin: 0 var(--space-4) var(--space-2) calc(var(--space-4) * 2);
+}
+
+.settings-section__footer {
+  font-size: 13px;
+  color: var(--color-ink-secondary);
+  margin: var(--space-2) calc(var(--space-4) * 2) 0;
+}
+
+.settings-row {
+  min-height: 44px;
+  padding-left: var(--space-4);
+  gap: var(--space-3);
+}
+
+.settings-row__label {
+  flex: 1;
+}
+
+.settings-row__value {
+  font-size: 17px;
+  color: var(--color-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-row__action {
+  color: var(--color-accent);
+  font-size: 17px;
+  text-align: left;
+  padding-right: var(--space-4);
+}
+
+.settings-row__action:disabled {
+  color: var(--color-ink-secondary);
+}
+
+.stepper {
+  display: flex;
+  margin-right: var(--space-3);
+  background: var(--color-track);
+  border-radius: 8px;
+}
+
+.stepper__button {
+  width: 47px;
+  height: 44px;
+  font-size: 22px;
+  color: var(--color-ink);
+}
+
+.stepper__button:first-child {
+  border-right: 0.5px solid var(--color-hairline);
+}
+
+.stepper__button:disabled {
+  color: var(--color-ink-secondary);
+  opacity: 0.4;
+}
+
+.start-sheet__home {
+  margin-bottom: var(--space-3);
 }

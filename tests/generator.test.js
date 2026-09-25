@@ -326,7 +326,7 @@ describe('generateRoutes with the mock provider', () => {
     const bike = await generateRoutes({ start, distanceKm: 30, mode: 'bike', provider, rng: seeded(3) });
     expect(bike.length).toBeGreaterThanOrEqual(5);
     for (const r of bike) expect(Math.abs(r.distanceKm - 30)).toBeLessThanOrEqual(1.0);
-    expect(bike[0].durationMin).toBeCloseTo((bike[0].distanceKm / 18) * 60, 6);
+    expect(bike[0].durationMin).toBeCloseTo((bike[0].distanceKm / 22) * 60, 6);
   });
 
   it('applies an explicit toleranceKm over the mode default', async () => {

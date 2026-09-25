@@ -1,5 +1,5 @@
 import { MODE_ICONS, ICON_CHEVRON } from '../components/icons.js';
-import { formatKm, formatDuration } from '../../core/index.js';
+import { formatKm, formatDuration, estimateDurationMin } from '../../core/index.js';
 
 /** Full-page "Opgeslagen" screen: Large Title + grouped inset list. */
 export function renderSavedList({ routes, onOpen, onDelete }) {
@@ -44,7 +44,8 @@ export function renderSavedList({ routes, onOpen, onDelete }) {
 
     const meta = document.createElement('span');
     meta.className = 'grouped-list__meta';
-    meta.textContent = `${formatKm(route.distanceKm)} · ${formatDuration(route.durationMin)}`;
+    // Duration from the current pace settings, so a changed pace also updates saved routes.
+    meta.textContent = `${formatKm(route.distanceKm)} · ${formatDuration(estimateDurationMin(route.distanceKm, route.mode))}`;
 
     text.append(name, meta);
 

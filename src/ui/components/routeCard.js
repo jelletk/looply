@@ -1,5 +1,14 @@
 import { createThumbnail } from './thumbnail.js';
-import { formatKm, formatDuration, compassLabel } from '../../core/index.js';
+import { formatDuration, formatShortDistance, compassLabel, estimateDurationMin } from '../../core/index.js';
+
+/** "1 u · richting NO", or for two loops "1 u · binnen 850 m" (farthest from start). Duration uses the user's own pace. */
+export function routeMeta(route) {
+  const duration = formatDuration(estimateDurationMin(route.distanceKm, route.mode));
+  if (route.loops === 2 && Number.isFinite(route.maxFromStartKm)) {
+    return `${duration} · binnen ${formatShortDistance(route.maxFromStartKm)}`;
+  }
+  return `${duration} · richting ${compassLabel(route.bearingDeg)}`;
+}
 
 /** White, 18px-radius route card: thumbnail, name, distance/duration/compass. */
 export function createRouteCard({ route, selected, onSelect }) {
@@ -15,7 +24,7 @@ export function createRouteCard({ route, selected, onSelect }) {
 
   const meta = document.createElement('div');
   meta.className = 'route-card__meta';
-  meta.textContent = `${formatDuration(route.durationMin)} · richting ${compassLabel(route.bearingDeg)}`;
+  meta.textContent = routeMeta(route);
 
   card.append(name, meta);
   card.addEventListener('click', () => onSelect(route.id));

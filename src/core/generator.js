@@ -45,6 +45,7 @@ const SCALE_STEP_MAX = 1.6;
 const NEAR_CLEAN_SPUR_KM = 0.3; // a candidate with less doubled road than this marks a promising direction
 const EXPLOIT_JITTER_DEG = 25;
 const FILL_MAX_OVERLAP = 0.9; // when short of 5, near-identical routes are still never added
+const AVOID_MAX_OVERLAP = 0.4; // sharing more than this with a route to avoid makes a candidate "not fresh"
 const CACHE_CELL_KM = 0.02; // requests whose points all round to the same 20 m cell are the same request
 const POLISH_SHRINK_PRIOR = 0.95; // an unscaled polish comes back a little shorter than its loop
 const SHRINK_MIN = 0.85;
@@ -354,7 +355,10 @@ function pointCountsFor(target) {
  * beyond max(30 m, 1 % of its length) — only a start stem (a cul-de-sac the loop must leave and
  * re-enter) is allowed. At most `maxProviderCalls` provider requests are made; identical requests
  * are sent once. Throws only on REQUEST_DENIED / OVER_QUERY_LIMIT or when no route at all could
- * be produced (code NO_ANSWER when no request got an answer at all, else NO_ROUTES). onProgress receives { done, total, calls }. An aborted `signal` stops the search:
+ * be produced (code NO_ANSWER when no request got an answer at all, else NO_ROUTES). Routes that
+ * mostly follow one of `avoidPaths` (overlap > 40 %) rank after all others and do not count
+ * towards the five the search aims for. onProgress receives { done, total, calls }. An aborted
+ * `signal` stops the search:
  * no new requests are sent and the promise rejects with an error whose code is 'ABORTED'.
  *
  * Per candidate: at most `maxAttemptsPerRoute` requests. After the first one, a result whose loop
@@ -377,6 +381,7 @@ export async function generateRoutes({
   rng = Math.random,
   onProgress,
   signal,
+  avoidPaths = [], // paths of routes to steer away from (shown before, saved): they rank last
 }) {
   if (!provider || typeof provider.route !== 'function') {
     throw new Error('generateRoutes: provider.route is required');
@@ -608,8 +613,9 @@ export async function generateRoutes({
     pool = pool.concat(await runPass(makeCandidates(pass)));
     // Stems are judged against the shortest one seen over all candidates, so re-check the pool.
     pool = pool.filter((c) => stemAllowed(c.stemKm, c.distanceKm, minStemKm));
-    survivors = finalize(pool, dedupeThreshold);
-    if (survivors.length >= MIN_ROUTES) break;
+    survivors = finalize(pool, dedupeThreshold, avoidPaths);
+    // With streets to avoid, keep searching (within the budget) until five routes are fresh.
+    if (survivors.filter((s) => s.fresh).length >= MIN_ROUTES) break;
     if (calls >= callCap) break;
   }
 
@@ -638,6 +644,7 @@ export async function generateRoutes({
     durationMin: estimateDurationMin(s.distanceKm, mode),
     path: s.path,
     bearingDeg: s.bearingDeg,
+    fresh: s.fresh, // false: mostly on the streets of a route to avoid
     createdAt,
   }));
 }
@@ -647,8 +654,14 @@ export async function generateRoutes({
  * MIN_ROUTES while the pool holds at least that many, the least-overlapping leftovers are added
  * back (never near-identical ones) so a dense grid still yields five distinct-enough loops.
  */
-function finalize(pool, threshold) {
-  const sorted = pool.slice().sort((a, b) => a.errorKm - b.errorKm);
+function finalize(pool, threshold, avoidPaths = []) {
+  for (const c of pool) {
+    if (c.fresh === undefined) {
+      c.fresh = !avoidPaths.some((p) => routeOverlap(p, c.path) > AVOID_MAX_OVERLAP);
+    }
+  }
+  const preferred = (a, b) => Number(b.fresh) - Number(a.fresh) || a.errorKm - b.errorKm;
+  const sorted = pool.slice().sort(preferred);
   const kept = [];
   const rest = [];
   for (const candidate of sorted) {
@@ -669,5 +682,5 @@ function finalize(pool, threshold) {
     if (bestIdx < 0 || bestOverlap >= FILL_MAX_OVERLAP) break;
     kept.push(rest.splice(bestIdx, 1)[0]);
   }
-  return kept.sort((a, b) => a.errorKm - b.errorKm);
+  return kept.sort(preferred);
 }

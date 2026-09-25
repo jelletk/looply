@@ -2,12 +2,15 @@ import {
   createMockProvider,
   createGoogleProvider,
   generateRoutes,
+  generateTwoLoopRoutes,
   defaultToleranceKm,
   maxProviderCallsFor,
   googleMapsDirectionsUrl,
   listRoutes,
   saveRoute,
   deleteRoute,
+  createSettingsStore,
+  setSpeeds,
 } from './core/index.js';
 import { loadGoogleMaps } from './ui/googleLoader.js';
 import { createMap } from './ui/map.js';
@@ -17,6 +20,7 @@ import { createStartPill, openStartSheet } from './ui/components/startPicker.js'
 import { renderPlanSheet } from './ui/screens/plan.js';
 import { renderResultsSheet } from './ui/screens/results.js';
 import { renderSavedList } from './ui/screens/saved.js';
+import { renderSettings } from './ui/screens/settings.js';
 import { showToast } from './ui/components/toast.js';
 import { createBackButton } from './ui/components/backButton.js';
 import { openLocationIntro, locationIntroSeen } from './ui/components/locationIntro.js';
@@ -27,7 +31,7 @@ const apiKey = window.LOOPLY_CONFIG?.googleMapsApiKey || '';
 const useGoogle = !forceMock && Boolean(apiKey);
 
 const state = {
-  tab: 'plan', // 'plan' | 'saved'
+  tab: 'plan', // 'plan' | 'saved' | 'settings'
   planScreen: 'form', // 'form' | 'results'
   savedScreen: 'list', // 'list' | 'detail'
   mode: 'walk',
@@ -48,6 +52,10 @@ let provider = null;
 let searchController = null; // AbortController of the search in progress
 let shownRouteId; // route currently drawn on the map (undefined: nothing drawn yet)
 let startVersion = 0; // bumped on every start change, so a late location fix cannot overwrite a newer choice
+
+const settingsStore = createSettingsStore();
+let settings = settingsStore.load(); // { home, closeToHome, speeds }
+setSpeeds(settings.speeds);
 
 const app = document.getElementById('app');
 const mapContainer = document.createElement('div');
@@ -152,6 +160,21 @@ function renderScreenLayer() {
   screenLayer.textContent = '';
   screenLayer.className = 'screen-layer';
 
+  if (state.tab === 'settings') {
+    mapContainer.hidden = true;
+    screenLayer.classList.add('screen-layer--saved');
+    screenLayer.appendChild(
+      renderSettings({
+        settings,
+        currentStart: state.start ? { latLng: state.start, label: state.startLabel } : null,
+        onSetHome: handleSetHome,
+        onClearHome: () => updateSettings({ home: null }),
+        onSpeedChange: (mode, kmh) => updateSettings({ speeds: { [mode]: kmh } }),
+      })
+    );
+    return;
+  }
+
   if (state.tab === 'saved' && state.savedScreen === 'list') {
     mapContainer.hidden = true;
     screenLayer.classList.add('screen-layer--saved');
@@ -171,9 +194,11 @@ function renderScreenLayer() {
         content: renderPlanSheet({
           mode: state.mode,
           distanceKm: state.distanceByMode[state.mode],
+          closeToHome: settings.closeToHome,
           onModeChange: handleModeChange,
           onDistanceChange: handleDistanceChange,
-          onSearch: handleSearch,
+          onCloseToHomeChange: (on) => updateSettings({ closeToHome: on }, { rerender: false }),
+          onSearch: () => runSearch(),
         }),
       })
     );
@@ -204,8 +229,9 @@ function renderScreenLayer() {
         onSelectRoute: handleSelectRoute,
         onSave: handleSave,
         onOpenMaps: handleOpenMaps,
-        onRetry: handleSearch,
+        onRetry: () => runSearch(),
         onCancel: handleCancel,
+        onAgain: !inSaved && status === 'ready' ? () => runSearch({ again: true }) : undefined,
       }),
     })
   );
@@ -252,7 +278,32 @@ function handleDistanceChange(value) {
   state.distanceByMode[state.mode] = value;
 }
 
-async function handleSearch() {
+/** Save a settings change; the UI follows the stored result. */
+function updateSettings(patch, { rerender = true } = {}) {
+  try {
+    settings = settingsStore.update(patch);
+  } catch (err) {
+    console.error('Saving settings failed', err);
+    settings = { ...settings, ...patch, speeds: { ...settings.speeds, ...(patch.speeds || {}) } };
+    showToast('Deze instelling kon niet worden bewaard; hij geldt alleen tot je de app sluit.');
+  }
+  setSpeeds(settings.speeds);
+  if (rerender) render();
+}
+
+function handleSetHome() {
+  if (!state.start) return;
+  const label = state.startLabel === 'Huidige locatie' ? 'Bewaard vanaf je locatie' : state.startLabel;
+  updateSettings({ home: { lat: state.start.lat, lng: state.start.lng, label } });
+  showToast('Thuis is bewaard. Je vindt het bovenaan in de startpunt-kiezer.');
+}
+
+/**
+ * Search routes from the current start. `again`: the user wants other loops than the ones on
+ * screen, so those streets are avoided too. Saved routes of this mode are always avoided, so a
+ * search favours loops you have not saved yet.
+ */
+async function runSearch({ again = false } = {}) {
   if (!state.start) {
     showToast('Kies eerst een startpunt.');
     openStartPicker();
@@ -261,6 +312,11 @@ async function handleSearch() {
   searchController?.abort();
   const controller = new AbortController();
   searchController = controller;
+  const avoidPaths = [
+    ...state.savedRoutes.filter((r) => r.mode === state.mode).map((r) => r.path),
+    ...(again ? state.routes.map((r) => r.path) : []),
+  ];
+  const generate = settings.closeToHome ? generateTwoLoopRoutes : generateRoutes;
 
   state.tab = 'plan';
   state.planScreen = 'results';
@@ -271,7 +327,7 @@ async function handleSearch() {
   render();
 
   try {
-    const routes = await generateRoutes({
+    const routes = await generate({
       start: state.start,
       distanceKm: state.distanceByMode[state.mode],
       mode: state.mode,
@@ -283,6 +339,7 @@ async function handleSearch() {
         if (controller === searchController) handleProgress(info);
       },
       signal: controller.signal,
+      avoidPaths,
     });
     if (controller !== searchController) return;
     state.routesStatus = 'ready';
@@ -371,6 +428,8 @@ function openStartPicker() {
   openStartSheet({
     mode: useGoogle ? 'google' : 'mock',
     google: useGoogle ? window.google : null,
+    home: settings.home,
+    onHome: (home) => setStart({ lat: home.lat, lng: home.lng }, 'Thuis'),
     onUseCurrentLocation: resolveCurrentLocation,
     onCoords: ({ latLng, label }) => setStart(latLng, label),
     onPlace: ({ latLng, label }) => setStart(latLng, label),
