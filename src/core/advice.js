@@ -61,9 +61,15 @@ export function adviceLine({ now, durationMin, km, sun, weather, step = 0.5, min
     const dry = w.dryAt != null ? ` Droog vanaf ongeveer ${clockTime(w.dryAt)}.` : '';
     return { warn: true, icon: 'rain', segments: [`Bui om ${clockTime(w.rainAt)}, ${where} je rondje.${dry}`] };
   }
-  if (w?.rainAt != null && w.rainAt >= back && w.rainAt - now <= RAIN_SOON_MS) {
+  const sunAdvice = sunAdviceLine({ now, back, durationMin, km, sun, step, minKm });
+  // "Back before the rain" is good news; it never hides a sunset warning.
+  if (!sunAdvice.warn && w?.rainAt != null && w.rainAt >= back && w.rainAt - now <= RAIN_SOON_MS) {
     return { warn: false, segments: ['Je bent terug om ', b(clockTime(back)), ', voor de bui.'] };
   }
+  return sunAdvice;
+}
+
+function sunAdviceLine({ now, back, durationMin, km, sun, step, minKm }) {
   if (sun.rise == null || sun.set == null) return { warn: false, segments: ['Terug om ', b(clockTime(back))] };
   if (now >= sun.set || now < sun.rise - 40 * MIN) {
     return { warn: false, segments: ['Het is donker · terug om ', b(clockTime(back))] };

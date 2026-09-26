@@ -45,12 +45,14 @@ export function openStartSheet({ purpose = 'start', home, currentKind, locate, s
       : row('house', 'Thuis instellen', 'Zoek je adres hieronder', () => input.focus());
 
   let busy = false;
+  let closed = false; // a fix arriving after the sheet closed (or after another pick) is dropped
   async function useLocation() {
     if (busy) return;
     busy = true;
     locErr.replaceChildren(h('div', { class: 'inline-err t-foot' }, h('span', {}, 'Locatie bepalen…')));
     const error = await locate();
     busy = false;
+    if (closed) return;
     if (!error) return finish({ kind: 'here' });
     const retry = error === 'timeout' ? h('button', { class: 'link-btn', type: 'button', onclick: useLocation }, 'Opnieuw') : null;
     locErr.replaceChildren(inlineError(LOCATION_ERRORS[error] ?? LOCATION_ERRORS.unavailable, retry));
@@ -112,9 +114,11 @@ export function openStartSheet({ purpose = 'start', home, currentKind, locate, s
       h('label', { class: 'field' }, icon('search'), input),
       results,
     ],
+    onClose: () => (closed = true),
   });
 
   function finish(choice) {
+    if (closed) return;
     sheet.close();
     onPick(choice);
   }

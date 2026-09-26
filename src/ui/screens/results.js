@@ -105,7 +105,7 @@ function poster(route, i, ctx) {
     'article',
     { class: 'poster' + (ctx.single ? ' poster--single' : ''), 'aria-label': ctx.single ? title : `${title}, rondje ${i + 1} van ${n}` },
     h('div', { class: 't-foot t-foot--strong' }, eyebrow),
-    h('h2', { class: 't-title2' }, title),
+    h('h2', { class: 't-title2', tabindex: '-1' }, title),
     h(
       'button',
       { class: 'shape', type: 'button', 'aria-label': `Bekijk ${title} op de kaart`, onclick: () => ctx.onOpenMap(route) },

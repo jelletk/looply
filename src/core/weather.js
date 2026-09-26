@@ -53,8 +53,10 @@ export function parseWeather(json, now) {
 }
 
 /**
- * Weather fetcher with a 15-minute cache per spot (rounded to ~1 km). Never throws: without an
- * answer it resolves to null, and the app simply leaves the weather out.
+ * Weather fetcher with a 15-minute cache per spot (rounded to ~1 km). Resolves to the raw
+ * Open-Meteo answer, so the caller parses it with parseWeather() at the time it shows it (a
+ * forecast fetched at 17:00 still reads right at 17:20). Never throws: without an answer it
+ * resolves to null, and the app simply leaves the weather out.
  */
 export function createWeatherSource({ fetchFn = globalThis.fetch?.bind(globalThis), clock = () => Date.now() } = {}) {
   const cache = new Map(); // key → { at, json }
@@ -63,15 +65,16 @@ export function createWeatherSource({ fetchFn = globalThis.fetch?.bind(globalThi
     if (!latLng || typeof fetchFn !== 'function') return null;
     const key = `${latLng.lat.toFixed(2)},${latLng.lng.toFixed(2)}`;
     const hit = cache.get(key);
-    if (hit && clock() - hit.at < CACHE_MS) return parseWeather(hit.json, clock());
+    if (hit && clock() - hit.at < CACHE_MS) return hit.json;
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = setTimeout(() => controller?.abort(), TIMEOUT_MS);
     try {
       const res = await fetchFn(openMeteoUrl(latLng), controller ? { signal: controller.signal } : undefined);
       if (!res.ok) return null;
       const json = await res.json();
+      if (!parseWeather(json, clock())) return null;
       cache.set(key, { at: clock(), json });
-      return parseWeather(json, clock());
+      return json;
     } catch {
       return null;
     } finally {

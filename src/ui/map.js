@@ -54,9 +54,9 @@ export function createRouteMap(google) {
       const view = viewForBox(box, slot.clientWidth, slot.clientHeight);
       map.setCenter(view.center);
       map.setZoom(view.zoom);
-      google.maps.event.addListenerOnce(map, 'idle', () => {
-        if (mine === token) slot.classList.add('shape__map--on');
-      });
+      const show = () => mine === token && slot.classList.add('shape__map--on');
+      google.maps.event.addListenerOnce(map, 'idle', show);
+      setTimeout(show, 1500); // same view as before: Google may not fire 'idle' again
     });
   }
 

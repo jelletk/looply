@@ -13,6 +13,7 @@ import {
   setSpeeds,
   sunTimes,
   createWeatherSource,
+  parseWeather,
 } from './core/index.js';
 import { loadGoogleMaps } from './ui/googleLoader.js';
 import { createRouteMap } from './ui/map.js';
@@ -48,7 +49,7 @@ const state = {
   query: null, // the plan they were found for (see queryKey)
   page: 0, // poster in view
   savedFilter: 'all',
-  weather: null, // real weather at the start point (null: none)
+  weatherJson: null, // raw Open-Meteo answer for the start point (null: none), parsed at render time
   locationState: 'prompt', // 'granted' | 'denied' | 'prompt'
   confirmingHomeDelete: false,
 };
@@ -125,22 +126,23 @@ function now() {
 
 function weatherNow(t) {
   const fake = protoWeather(proto, t);
-  return fake === undefined ? state.weather : fake;
+  return fake === undefined ? parseWeather(state.weatherJson, t) : fake;
 }
 
 let weatherAsked = 0;
 async function refreshWeather() {
   weatherAsked = Date.now();
   const spot = skySpot();
-  const w = await weatherAt(spot);
+  const json = await weatherAt(spot);
   if (spot !== skySpot()) return; // the start moved meanwhile
-  const changed = JSON.stringify(w) !== JSON.stringify(state.weather);
-  state.weather = w;
+  const changed = json !== state.weatherJson;
+  state.weatherJson = json;
   if (changed && !state.flow && state.tab === 'today' && idle()) renderTab();
 }
 
 function idle() {
-  return Date.now() - lastTouch > 10000 && !document.querySelector('.scrim');
+  const focusOnPage = page.contains(document.activeElement) && document.activeElement !== page;
+  return Date.now() - lastTouch > 10000 && !document.querySelector('.scrim') && !focusOnPage;
 }
 
 /** Once a minute and when the app comes back: sky, texts, weather. */
@@ -172,6 +174,8 @@ function selectTab(tab) {
   renderTab();
   renderChrome();
   page.scrollTop = 0;
+  // The tab bar is rebuilt: keep VoiceOver on the tab that was tapped.
+  tabbarSlot.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
 }
 
 function renderTab() {
@@ -200,6 +204,7 @@ function todayView(t) {
     onMode: (m) => {
       updateSettings({ mode: m });
       renderTab();
+      page.querySelector('.mode[aria-pressed="true"]')?.focus({ preventScroll: true });
     },
     onKm: (km) => updateSettings({ distances: { [mode]: km } }),
     onNear: (on) => updateSettings({ closeToHome: on }),
@@ -358,7 +363,12 @@ function setStart(latLng, label, kind) {
   state.start = { latLng: { lat: latLng.lat, lng: latLng.lng }, label, kind };
   state.askHome = kind === 'here' && !settings.home && !settings.homeAsked;
   if (state.askHome) updateSettings({ homeAsked: true });
-  if (!state.flow) render();
+  if (!state.flow) {
+    const hadFocus = page.contains(document.activeElement) || document.activeElement === document.body;
+    render();
+    // The start pill is rebuilt; keep focus on it (the sheet that just closed returned focus there).
+    if (hadFocus && state.tab === 'today') page.querySelector('.start-row .pill')?.focus({ preventScroll: true });
+  }
   refreshWeather();
 }
 
@@ -379,7 +389,11 @@ function deleteHome() {
   showToast('Thuis verwijderd', {
     undo: () => {
       updateSettings({ home: old });
-      if (wasStart) state.start = { ...state.start, kind: 'home', label: 'Thuis' };
+      // Only when the start is still the old home (not a start picked meanwhile).
+      const s = state.start;
+      if (wasStart && s?.kind === 'place' && s.label === 'Vorige Thuis' && s.latLng.lat === old.lat && s.latLng.lng === old.lng) {
+        state.start = { ...s, kind: 'home', label: 'Thuis' };
+      }
       renderTab();
     },
   });
@@ -587,10 +601,15 @@ function posterContext(routes, extra) {
     onSave: toggleSave,
     onOpenMaps: (r) => window.open(googleMapsDirectionsUrl(r), '_blank'),
     onOpenMap: (r) => openMapSheet(r, { map: routeMap, onClose: () => flowView?.remap?.() }),
-    onSuggest: (km) => {
-      updateSettings({ distances: { [settings.mode]: km } });
-      closeFlow();
-    },
+    // "Kies 3,5 km" on a poster: plan that distance for this route's mode on Vandaag.
+    onSuggest: extra?.single
+      ? undefined
+      : (km) => {
+          const mode = routes[0]?.mode ?? settings.mode;
+          updateSettings({ mode, distances: { [mode]: km } });
+          state.tab = 'today';
+          closeFlow();
+        },
     map: ensureMap(),
     ...extra,
   };
@@ -655,7 +674,13 @@ function removeSaved(route) {
   }
   showToast('Uit Bewaard gehaald', {
     undo: () => {
-      trySave(route);
+      try {
+        trySave(route);
+      } catch (err) {
+        console.error('Saving the route back failed', err);
+        showToast('Terugzetten lukt niet. Staat Safari in privémodus?');
+        return;
+      }
       if (!state.flow) renderTab();
       flowView?.refreshSaved?.();
     },

@@ -24,7 +24,7 @@ export function protoNow(proto, realNow, sun) {
     case 'dawn': return sun.rise != null ? sun.rise + 20 * MIN : at(7, 30);
     case 'day': return at(13, 5);
     case 'dusk': return sun.set != null ? sun.set - 50 * MIN : at(19, 0);
-    case 'night': return at(22, 15);
+    case 'night': return sun.set != null ? Math.max(sun.set + 90 * MIN, at(22, 15)) : at(22, 15);
     default: return realNow;
   }
 }

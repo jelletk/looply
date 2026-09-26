@@ -58,7 +58,7 @@ describe('createWeatherSource', () => {
     let t = now;
     const weatherAt = createWeatherSource({ fetchFn, clock: () => t });
     const spot = { lat: 52.0907, lng: 5.1214 };
-    expect((await weatherAt(spot)).tempC).toBe(14);
+    expect(parseWeather(await weatherAt(spot), t).tempC).toBe(14);
     t += 10 * MIN;
     await weatherAt(spot);
     expect(fetchFn).toHaveBeenCalledTimes(1);

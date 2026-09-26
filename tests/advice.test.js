@@ -90,6 +90,12 @@ describe('adviceLine', () => {
     expect(lineText(advise({ now, weather: { ...dry, rainAt: at(14, 50) } }).segments)).toContain('aan het eind van');
   });
 
+  it('does not let "voor de bui" hide a sunset warning', () => {
+    const a = advise({ now: at(18, 40), durationMin: 60, weather: { ...dry, rainAt: at(19, 45) } });
+    expect(a.warn).toBe(true);
+    expect(a.icon).toBe('sunset');
+  });
+
   it('says you are back before the rain', () => {
     const a = advise({ now: at(14), durationMin: 30, weather: { ...dry, rainAt: at(14, 45) } });
     expect(a.warn).toBe(false);
