@@ -2,6 +2,7 @@
 
 import { skyPhase } from '../core/sun.js';
 
+const BOOT_KEY = 'looply.sky.v1'; // read by the inline script in index.html
 const THEME = { dawn: '#26336b', day: '#7ab7ee', dusk: '#18224f', night: '#050a1f' };
 
 export function createSky(root = document.body) {
@@ -19,6 +20,7 @@ export function createSky(root = document.body) {
 
   /** Set the phase for `now` and `sun`; returns the phase. Crossfades when it changes. */
   function update(now, sun) {
+    remember(sun);
     const next = skyPhase(now, sun);
     if (next === phase) return phase;
     const html = document.documentElement;
@@ -36,6 +38,15 @@ export function createSky(root = document.body) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME[next]);
     phase = next;
     return phase;
+  }
+
+  /** Remember today's sun times, so index.html can set the right sky before the first paint. */
+  function remember(sun) {
+    try {
+      localStorage.setItem(BOOT_KEY, JSON.stringify({ rise: sun.rise, set: sun.set }));
+    } catch {
+      // Private mode: the first paint simply starts at the default sky.
+    }
   }
 
   return { update, get phase() { return phase; } };

@@ -64,10 +64,21 @@ export function createRuler({ min, max, step, value, onChange }) {
     if (scroll) strip.scrollLeft = toX(km);
   }
 
+  // Only a scroll the user makes (touch, trackpad, and the momentum after it) changes the distance.
+  // Scrolls from layout — the ruler hidden behind the search, a redraw, Safari's toolbars — would
+  // otherwise read as "1 km" and are put back on the current value instead.
+  let userUntil = 0;
+  const byUser = () => (userUntil = Date.now() + 1200);
+  for (const type of ['touchstart', 'touchmove', 'pointerdown', 'wheel']) strip.addEventListener(type, byUser, { passive: true });
+
   let settle;
   strip.addEventListener('scroll', () => {
-    // A hidden ruler (its screen covered by the search) resets to 0 and fires a scroll: not a choice.
     if (!strip.clientWidth || !strip.isConnected) return;
+    if (Date.now() > userUntil) {
+      if (Math.abs(strip.scrollLeft - toX(current)) > STEP_PX / 2) strip.scrollLeft = toX(current);
+      return;
+    }
+    userUntil = Math.max(userUntil, Date.now() + 250); // momentum keeps counting as the user's
     const v = fromX(strip.scrollLeft);
     clearTimeout(settle);
     settle = setTimeout(() => strip.scrollTo({ left: toX(v), behavior: 'smooth' }), 120); // snap to the step

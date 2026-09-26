@@ -11,9 +11,14 @@ body {
   overflow: hidden;
 }
 
+/* Safari tints its bars from the page background: the colour at the bottom of the sky. */
+html {
+  background: var(--sky-low);
+}
+
 body {
   margin: 0;
-  background: var(--sky-mid);
+  background: transparent;
   color: var(--ink);
   font: 400 17px/1.41 var(--font-text);
   letter-spacing: -0.024em;
@@ -42,9 +47,11 @@ button {
   text-align: inherit;
 }
 
-button:focus-visible,
-[tabindex]:focus-visible,
-input:focus-visible {
+/* Focus rings only after keyboard use: Safari also showed them after a tap once the app moved
+   focus itself. VoiceOver draws its own focus. */
+:root[data-input="keyboard"] button:focus-visible,
+:root[data-input="keyboard"] [tabindex]:focus-visible,
+:root[data-input="keyboard"] input:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
 }

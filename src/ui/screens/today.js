@@ -42,10 +42,13 @@ export function renderToday(ctx) {
   const adviceBox = h('div', { class: 'advice' });
   const near = h('span', { class: 't-foot', id: 'near-detail' }, nearText(km));
   const backTo = h('div');
+  let lastRoll = 0;
 
   function refresh({ roll = false } = {}) {
     num.textContent = kmNumber(km);
-    if (roll) {
+    // Roll the number once per short burst, not on every step of a fast swipe (that looked jittery).
+    if (roll && Date.now() - lastRoll > 220) {
+      lastRoll = Date.now();
       num.classList.remove('num--roll');
       void num.offsetWidth;
       num.classList.add('num--roll');

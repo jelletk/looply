@@ -79,7 +79,11 @@ const flow = h('section', { class: 'flow', hidden: true });
 const tabbarSlot = h('div');
 const protoBtn = h('button', { class: 'proto', type: 'button', onclick: openProto, 'aria-label': 'Prototype: tijd, weer en fouten nabootsen' }, 'Prototype');
 app.append(page, flow, tabbarSlot, protoBtn);
-for (const type of ['pointerdown', 'keydown', 'scroll']) app.addEventListener(type, () => (lastTouch = Date.now()), true);
+// Real input only: the ruler scrolls by itself when it is drawn, which must not count.
+for (const type of ['pointerdown', 'touchstart', 'keydown', 'wheel']) app.addEventListener(type, () => (lastTouch = Date.now()), { capture: true, passive: true });
+// Focus rings only show after keyboard use (see base.css).
+addEventListener('keydown', (e) => e.key === 'Tab' && (document.documentElement.dataset.input = 'keyboard'), true);
+addEventListener('pointerdown', () => delete document.documentElement.dataset.input, true);
 
 async function init() {
   if (useGoogle) {
@@ -137,11 +141,22 @@ async function refreshWeather() {
   if (spot !== skySpot()) return; // the start moved meanwhile
   const changed = json !== state.weatherJson;
   state.weatherJson = json;
-  if (changed && !state.flow && state.tab === 'today' && idle()) renderTab();
+  if (changed) weatherPending = true;
+  showPendingWeather();
 }
 
-function idle() {
-  const focusOnPage = page.contains(document.activeElement) && document.activeElement !== page;
+let weatherPending = false;
+/** New weather is worth a rebuild even with focus on the page (the plain minute tick is not). */
+function showPendingWeather() {
+  if (!weatherPending || state.flow || state.tab !== 'today' || !idle({ ignoreFocus: true })) return;
+  weatherPending = false;
+  const pillFocused = document.activeElement?.matches?.('.start-row .pill');
+  renderTab();
+  if (pillFocused) page.querySelector('.start-row .pill')?.focus({ preventScroll: true });
+}
+
+function idle({ ignoreFocus = false } = {}) {
+  const focusOnPage = !ignoreFocus && page.contains(document.activeElement) && document.activeElement !== page;
   return Date.now() - lastTouch > 10000 && !document.querySelector('.scrim') && !focusOnPage;
 }
 
@@ -149,6 +164,7 @@ function idle() {
 function tick() {
   sky.update(now(), sunAt(now()));
   if (Date.now() - weatherAsked > WEATHER_EVERY_MS) refreshWeather();
+  showPendingWeather();
   if (!state.flow && state.tab === 'today' && idle()) renderTab();
 }
 
@@ -363,12 +379,7 @@ function setStart(latLng, label, kind) {
   state.start = { latLng: { lat: latLng.lat, lng: latLng.lng }, label, kind };
   state.askHome = kind === 'here' && !settings.home && !settings.homeAsked;
   if (state.askHome) updateSettings({ homeAsked: true });
-  if (!state.flow) {
-    const hadFocus = page.contains(document.activeElement) || document.activeElement === document.body;
-    render();
-    // The start pill is rebuilt; keep focus on it (the sheet that just closed returned focus there).
-    if (hadFocus && state.tab === 'today') page.querySelector('.start-row .pill')?.focus({ preventScroll: true });
-  }
+  if (!state.flow) render();
   refreshWeather();
 }
 
@@ -407,21 +418,25 @@ function openStartPicker(purpose) {
     locate,
     search: placeSearch,
     onPick: (choice) => {
-      if (purpose === 'home') {
-        const home =
-          choice.kind === 'here'
-            ? { ...lastFix, label: 'Bewaard vanaf je locatie' }
-            : { ...choice.latLng, label: choice.label };
-        updateSettings({ home });
-        if (state.start?.kind === 'home' || !state.start) setStart(home, 'Thuis', 'home');
-        else renderTab();
-        return;
-      }
-      if (choice.kind === 'home') setStart(settings.home, 'Thuis', 'home');
-      else if (choice.kind === 'here') setStart(lastFix, 'Huidige locatie', 'here');
-      else setStart(choice.latLng, choice.label, 'place');
+      pickStart(purpose, choice);
+      // The start pill was rebuilt: put focus back on it for VoiceOver (a tap never focused it).
+      if (purpose === 'start') page.querySelector('.start-row .pill')?.focus({ preventScroll: true });
     },
   });
+}
+
+function pickStart(purpose, choice) {
+  if (purpose === 'home') {
+    const home =
+      choice.kind === 'here' ? { ...lastFix, label: 'Bewaard vanaf je locatie' } : { ...choice.latLng, label: choice.label };
+    updateSettings({ home });
+    if (state.start?.kind === 'home' || !state.start) setStart(home, 'Thuis', 'home');
+    else renderTab();
+    return;
+  }
+  if (choice.kind === 'home') setStart(settings.home, 'Thuis', 'home');
+  else if (choice.kind === 'here') setStart(lastFix, 'Huidige locatie', 'here');
+  else setStart(choice.latLng, choice.label, 'place');
 }
 
 function openWelcome() {

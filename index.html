@@ -9,6 +9,19 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Looply" />
     <meta name="theme-color" content="#18224f" />
+    <script>
+      // Set the sky phase before the first paint (Safari tints its bars from the first frame).
+      // Same rule as skyPhase() in src/core/sun.js, on the sun times src/ui/sky.js stored today.
+      try {
+        var s = JSON.parse(localStorage.getItem('looply.sky.v1') || 'null');
+        var now = Date.now(), m = 60000;
+        if (s && s.rise && new Date(s.rise).toDateString() === new Date().toDateString()) {
+          var p = now < s.rise - 40 * m || now > s.set + 50 * m ? 'night' : now < s.rise + 60 * m ? 'dawn' : now > s.set - 60 * m ? 'dusk' : 'day';
+          document.documentElement.dataset.phase = p;
+          document.querySelector('meta[name="theme-color"]').content = { dawn: '#26336b', day: '#7ab7ee', dusk: '#18224f', night: '#050a1f' }[p];
+        }
+      } catch (e) {}
+    </script>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/icon-192.png" />
