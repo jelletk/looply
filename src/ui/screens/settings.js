@@ -1,3 +1,4 @@
+import { h } from '../dom.js';
 import { formatPace, formatSpeed } from '../../core/index.js';
 
 // Stepper per mode. Running is set as pace (seconds per km), like a runner thinks; the rest in km/h.
@@ -7,7 +8,7 @@ const PACE_ROWS = [
   { mode: 'bike', label: 'Fietsen', kind: 'speed', step: 1, min: 10, max: 40 },
 ];
 
-function stepSpeed(row, kmh, direction) {
+export function stepSpeed(row, kmh, direction) {
   if (row.kind === 'pace') {
     // Faster = fewer seconds per km, so "+" lowers the pace number.
     const sec = Math.round(3600 / kmh / row.step) * row.step - direction * row.step;
@@ -17,119 +18,108 @@ function stepSpeed(row, kmh, direction) {
   return Math.min(row.max, Math.max(row.min, next));
 }
 
-function section(title, footer) {
-  const wrap = document.createElement('section');
-  wrap.className = 'settings-section';
-  const h = document.createElement('h2');
-  h.className = 'settings-section__title';
-  h.textContent = title;
-  const group = document.createElement('div');
-  group.className = 'grouped-list';
-  wrap.append(h, group);
-  if (footer) {
-    const f = document.createElement('p');
-    f.className = 'settings-section__footer';
-    f.textContent = footer;
-    wrap.appendChild(f);
-  }
-  return { wrap, group };
-}
+const LOCATION_STATUS = { granted: 'Toegestaan', denied: 'Niet toegestaan', prompt: 'Nog niet gevraagd' };
 
-function stepperButton(text, label, disabled, onTap) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'stepper__button';
-  b.textContent = text;
-  b.setAttribute('aria-label', label);
-  b.disabled = disabled;
-  b.addEventListener('click', onTap);
-  return b;
-}
+/**
+ * Instellingen: Thuis, Jouw tempo, Locatie, Testen, Over.
+ * ctx: settings, locationState, version, confirmingHomeDelete, onEditHome, onAskDeleteHome,
+ *      onDeleteHome, onCancelDeleteHome, onSpeed(mode, kmh, buttonLabel), onProto(bool)
+ */
+export function renderSettings(ctx) {
+  const { settings } = ctx;
+  const section = (title, group, note) => [
+    h('h2', { class: 't-foot t-foot--strong section' }, title),
+    h('div', { class: 'group glass' }, group),
+    note ? h('p', { class: 't-foot note' }, note) : null,
+  ];
 
-/** Full-page "Instellingen": Thuis and pace per mode. */
-export function renderSettings({ settings, currentStart, onSetHome, onClearHome, onSpeedChange }) {
-  const page = document.createElement('div');
-  page.className = 'saved-page';
+  const homeRows = settings.home
+    ? [
+        h(
+          'div',
+          { class: 'row' },
+          h('span', { class: 'row__grow' }, settings.home.label),
+          h('button', { class: 'btn--text', type: 'button', onclick: ctx.onEditHome }, 'Wijzig')
+        ),
+        ctx.confirmingHomeDelete
+          ? h(
+              'div',
+              { class: 'row', role: 'alert' },
+              h('span', { class: 'row__grow t-callout' }, 'Thuis verwijderen? Je kunt hem later opnieuw instellen.'),
+              h('button', { class: 'btn--text', type: 'button', onclick: ctx.onCancelDeleteHome }, 'Nee'),
+              h('button', { class: 'btn--text danger', type: 'button', onclick: ctx.onDeleteHome }, 'Verwijder')
+            )
+          : h('div', { class: 'row' }, h('button', { class: 'btn--text danger', type: 'button', style: 'padding:0', onclick: ctx.onAskDeleteHome }, 'Verwijder Thuis')),
+      ]
+    : [h('div', { class: 'row' }, h('button', { class: 'btn--text', type: 'button', style: 'padding:0', onclick: ctx.onEditHome }, 'Stel Thuis in'))];
 
-  const header = document.createElement('h1');
-  header.className = 'large-title';
-  header.textContent = 'Instellingen';
-  header.tabIndex = -1; // focus target after a re-render when the tapped control is gone
-  page.appendChild(header);
-
-  // Thuis
-  const home = section('Thuis', 'Thuis staat bovenaan in de startpunt-kiezer. Het blijft alleen op deze telefoon.');
-  const homeRow = document.createElement('div');
-  homeRow.className = 'grouped-list__row settings-row';
-  const homeText = document.createElement('span');
-  homeText.className = 'grouped-list__text';
-  const homeName = document.createElement('span');
-  homeName.className = 'grouped-list__name';
-  homeName.textContent = settings.home ? settings.home.label : 'Nog niet ingesteld';
-  homeText.appendChild(homeName);
-  homeRow.appendChild(homeText);
-  if (settings.home) {
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'grouped-list__delete';
-    clear.textContent = 'Verwijderen';
-    clear.addEventListener('click', onClearHome);
-    homeRow.appendChild(clear);
-  }
-  home.group.appendChild(homeRow);
-
-  const setRow = document.createElement('div');
-  setRow.className = 'grouped-list__row';
-  const setBtn = document.createElement('button');
-  setBtn.type = 'button';
-  setBtn.className = 'grouped-list__main settings-row__action';
-  const startIsHome =
-    currentStart && settings.home &&
-    currentStart.latLng.lat === settings.home.lat && currentStart.latLng.lng === settings.home.lng;
-  setBtn.disabled = !currentStart || startIsHome;
-  setBtn.textContent = !currentStart
-    ? 'Kies eerst een startpunt op Plannen'
-    : startIsHome
-      ? 'Je startpunt is nu Thuis'
-      : `Huidig startpunt als Thuis bewaren (${currentStart.label})`;
-  setBtn.addEventListener('click', onSetHome);
-  setRow.appendChild(setBtn);
-  home.group.appendChild(setRow);
-  page.appendChild(home.wrap);
-
-  // Tempo
-  const pace = section('Tempo', 'Gebruikt voor de tijdsschatting bij elke route, ook bij opgeslagen routes.');
-  for (const row of PACE_ROWS) {
+  const paceRows = PACE_ROWS.map((row) => {
     const kmh = settings.speeds[row.mode];
-    const r = document.createElement('div');
-    r.className = 'grouped-list__row settings-row';
-
-    const label = document.createElement('span');
-    label.className = 'grouped-list__name settings-row__label';
-    label.textContent = row.label;
-
-    const value = document.createElement('span');
-    value.className = 'settings-row__value';
-    value.textContent = row.kind === 'pace' ? formatPace(kmh) : formatSpeed(kmh);
-    value.setAttribute('aria-live', 'polite');
-
-    const stepper = document.createElement('span');
-    stepper.className = 'stepper';
     const slower = stepSpeed(row, kmh, -1);
     const faster = stepSpeed(row, kmh, 1);
-    stepper.append(
-      stepperButton('−', `${row.label} langzamer`, Math.abs(slower - kmh) < 1e-9, () =>
-        onSpeedChange(row.mode, slower, `${row.label} langzamer`)
-      ),
-      stepperButton('+', `${row.label} sneller`, Math.abs(faster - kmh) < 1e-9, () =>
-        onSpeedChange(row.mode, faster, `${row.label} sneller`)
-      )
+    const stepper = (text, label, next) => {
+      const atEnd = Math.abs(next - kmh) < 1e-9;
+      return h(
+        'button',
+        {
+          class: 'step',
+          type: 'button',
+          'aria-label': label,
+          'aria-disabled': String(atEnd),
+          'data-step': label,
+          onclick: () => !atEnd && ctx.onSpeed(row.mode, next, label),
+        },
+        text
+      );
+    };
+    return h(
+      'div',
+      { class: 'row' },
+      h('span', { class: 'row__grow' }, row.label),
+      stepper('−', `${row.label} langzamer`, slower),
+      h('span', { class: 'row__val', 'aria-live': 'polite' }, row.kind === 'pace' ? formatPace(kmh).replace(' min/km', ' /km') : formatSpeed(kmh)),
+      stepper('+', `${row.label} sneller`, faster)
     );
+  });
 
-    r.append(label, value, stepper);
-    pace.group.appendChild(r);
-  }
-  page.appendChild(pace.wrap);
+  const protoSwitch = h('input', {
+    type: 'checkbox',
+    role: 'switch',
+    class: 'switch',
+    'aria-labelledby': 'proto-label',
+    onchange: (e) => ctx.onProto(e.target.checked),
+  });
+  protoSwitch.checked = settings.showProto;
 
-  return page;
+  return h(
+    'div',
+    {},
+    h('h1', { class: 't-title1 list-title', tabindex: '-1' }, 'Instellingen'),
+    section('Thuis', homeRows, 'Thuis staat bovenaan in de startpunt-kiezer. Het blijft alleen op deze telefoon.'),
+    section('Jouw tempo', paceRows, 'Hiermee rekent Looply uit hoe laat je terug bent.'),
+    section(
+      'Locatie',
+      h('div', { class: 'row' }, h('span', { class: 'row__grow' }, 'Locatietoegang'), h('span', { class: 't-callout' }, LOCATION_STATUS[ctx.locationState] ?? 'Onbekend')),
+      ctx.locationState === 'denied'
+        ? 'Zet het aan via Instellingen › Privacy en beveiliging › Locatievoorzieningen op je iPhone. Thuis en adressen werken ook zonder.'
+        : null
+    ),
+    section(
+      'Testen',
+      h(
+        'label',
+        { class: 'row', style: 'cursor:pointer' },
+        h('span', { class: 'row__grow', id: 'proto-label' }, 'Testknop tonen'),
+        protoSwitch
+      ),
+      'Toont de knop Prototype bovenin. Daarmee boots je een tijdstip, het weer of een fout na.'
+    ),
+    section(
+      'Over',
+      [
+        h('div', { class: 'row' }, h('span', { class: 'row__grow' }, 'Versie'), h('span', { class: 't-callout' }, ctx.version)),
+        h('div', { class: 'row' }, h('span', { class: 'row__grow t-callout' }, 'Routes: Google · Weer: Open-Meteo')),
+      ]
+    )
+  );
 }

@@ -1,133 +1,97 @@
-import { normalizePathToViewBox } from './components/pathGeometry.js';
+// One Google map for the whole app (one map load per visit). It moves to where it is needed:
+// under the route shape of the poster in view (subtle, still, no labels), or into the map sheet
+// (interactive, with street names and the route drawn on it).
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
+import { viewForBox } from './projection.js';
 
-/**
- * createMap({ container, mode: 'google'|'svg', google }) → { setStart, showRoute, fitTo }
- */
-export function createMap({ container, mode, google }) {
-  return mode === 'google' ? createGoogleMap(container, google) : createSvgMap(container);
-}
+const QUIET = [
+  { elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ saturation: -100 }, { lightness: 10 }] },
+  { featureType: 'landscape', stylers: [{ saturation: -60 }] },
+];
 
-function createGoogleMap(container, google) {
-  const map = new google.maps.Map(container, {
+const READABLE = [
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+];
+
+export function createRouteMap(google) {
+  const el = document.createElement('div');
+  el.style.width = '100%';
+  el.style.height = '100%';
+  const map = new google.maps.Map(el, {
     center: { lat: 52.0907, lng: 5.1214 },
     zoom: 14,
     disableDefaultUI: true,
-    gestureHandling: 'greedy',
+    gestureHandling: 'none',
+    keyboardShortcuts: false,
+    clickableIcons: false,
+    isFractionalZoomEnabled: true,
+    styles: QUIET,
   });
+  let drawn = [];
+  let token = 0;
 
-  let marker = null;
-  let polyline = null;
-
-  function setStart(latLng) {
-    map.setCenter(latLng);
-    if (!marker) {
-      marker = new google.maps.Marker({ map, position: latLng });
-    } else {
-      marker.setPosition(latLng);
-    }
+  function clearDrawing() {
+    drawn.forEach((o) => o.setMap(null));
+    drawn = [];
   }
 
-  function showRoute(route) {
-    if (polyline) {
-      polyline.setMap(null);
-      polyline = null;
-    }
-    if (!route) return;
-    polyline = new google.maps.Polyline({
-      map,
-      path: route.path,
-      strokeColor: '#0066cc',
-      strokeWeight: 5,
+  /**
+   * Show the map in `slot` (a .shape__map element inside a poster shape), aligned with the SVG
+   * shape drawn from the same `box`. The slot fades in once the tiles are there.
+   */
+  function showUnder(slot, box) {
+    const mine = ++token;
+    clearDrawing();
+    if (el.parentElement && el.parentElement !== slot) el.parentElement.classList.remove('shape__map--on');
+    slot.appendChild(el);
+    map.setOptions({ gestureHandling: 'none', styles: QUIET });
+    requestAnimationFrame(() => {
+      if (mine !== token || !slot.clientWidth) return;
+      const view = viewForBox(box, slot.clientWidth, slot.clientHeight);
+      map.setCenter(view.center);
+      map.setZoom(view.zoom);
+      google.maps.event.addListenerOnce(map, 'idle', () => {
+        if (mine === token) slot.classList.add('shape__map--on');
+      });
     });
   }
 
-  function fitTo(route) {
-    if (!route?.path?.length) return;
-    const bounds = new google.maps.LatLngBounds();
-    route.path.forEach((p) => bounds.extend(p));
-    // Leave room for the floating start pill (top) and the results sheet (bottom).
-    map.fitBounds(bounds, { top: 110, bottom: 330, left: 32, right: 32 });
+  /** Interactive map of `route` in `slot` (the map sheet). */
+  function showInteractive(slot, route) {
+    ++token;
+    clearDrawing();
+    el.parentElement?.classList.remove('shape__map--on');
+    slot.appendChild(el);
+    slot.classList.add('shape__map--on');
+    map.setOptions({ gestureHandling: 'greedy', styles: READABLE });
+    drawn = [
+      new google.maps.Polyline({ map, path: route.path, strokeColor: '#ffffff', strokeWeight: 8, strokeOpacity: 0.9 }),
+      new google.maps.Polyline({ map, path: route.path, strokeColor: '#0f1f3d', strokeWeight: 4 }),
+      new google.maps.Marker({
+        map,
+        position: route.start,
+        title: 'Start',
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#ff8a3d', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 },
+      }),
+    ];
+    requestAnimationFrame(() => {
+      const bounds = new google.maps.LatLngBounds();
+      route.path.forEach((p) => bounds.extend(p));
+      map.fitBounds(bounds, 24);
+    });
   }
 
-  return { setStart, showRoute, fitTo };
-}
-
-function createSvgMap(container) {
-  container.classList.add('svg-map');
-  container.textContent = '';
-
-  const banner = document.createElement('div');
-  banner.className = 'svg-map__banner';
-  banner.textContent = 'Demo-modus: zonder API-key zie je een schets in plaats van de kaart.';
-  container.appendChild(banner);
-
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'svg-map__canvas');
-  svg.setAttribute('viewBox', '0 0 400 400');
-  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-  container.appendChild(svg);
-
-  const grid = document.createElementNS(SVG_NS, 'g');
-  grid.setAttribute('class', 'svg-map__grid');
-  for (let i = 0; i <= 400; i += 40) {
-    const vLine = document.createElementNS(SVG_NS, 'line');
-    vLine.setAttribute('x1', String(i));
-    vLine.setAttribute('y1', '0');
-    vLine.setAttribute('x2', String(i));
-    vLine.setAttribute('y2', '400');
-    grid.appendChild(vLine);
-
-    const hLine = document.createElementNS(SVG_NS, 'line');
-    hLine.setAttribute('x1', '0');
-    hLine.setAttribute('y1', String(i));
-    hLine.setAttribute('x2', '400');
-    hLine.setAttribute('y2', String(i));
-    grid.appendChild(hLine);
-  }
-  svg.appendChild(grid);
-
-  let startMarker = null;
-  let routeLine = null;
-
-  function drawStartMarker(cx, cy) {
-    if (startMarker) startMarker.remove();
-    startMarker = document.createElementNS(SVG_NS, 'circle');
-    startMarker.setAttribute('cx', String(cx));
-    startMarker.setAttribute('cy', String(cy));
-    startMarker.setAttribute('r', '7');
-    startMarker.setAttribute('class', 'svg-map__start');
-    svg.appendChild(startMarker);
+  /** Take the map out of view (e.g. when the results close). */
+  function hide() {
+    ++token;
+    clearDrawing();
+    el.parentElement?.classList.remove('shape__map--on');
+    el.remove();
   }
 
-  function setStart() {
-    // No real georeference in demo mode: show the marker at the canvas centre
-    // until a route is drawn, at which point showRoute() repositions it precisely.
-    if (!routeLine) drawStartMarker(200, 200);
-  }
-
-  function showRoute(route) {
-    if (routeLine) {
-      routeLine.remove();
-      routeLine = null;
-    }
-    if (!route) {
-      drawStartMarker(200, 200);
-      return;
-    }
-    const points = normalizePathToViewBox(route.path, 400, 48);
-    routeLine = document.createElementNS(SVG_NS, 'polyline');
-    routeLine.setAttribute('points', points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '));
-    routeLine.setAttribute('class', 'svg-map__route');
-    svg.appendChild(routeLine);
-    if (points[0]) drawStartMarker(points[0].x, points[0].y);
-  }
-
-  function fitTo() {
-    // The SVG viewBox already scales to fill the container; nothing to do.
-  }
-
-  drawStartMarker(200, 200);
-  return { setStart, showRoute, fitTo };
+  return { showUnder, showInteractive, hide };
 }

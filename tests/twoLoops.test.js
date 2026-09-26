@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { generateTwoLoopRoutes, maxDistanceFromStartKm, pairLoops, spreadPick } from '../src/core/twoLoops.js';
 import { generateRoutes } from '../src/core/generator.js';
 import { createMockProvider } from '../src/core/providers/mock.js';
-import { createSettingsStore } from '../src/core/settings.js';
+import { createSettingsStore, DEFAULT_SETTINGS } from '../src/core/settings.js';
+
+const DEFAULTS_PLAIN = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 
 const start = { lat: 52.0907, lng: 5.1214 };
 
@@ -85,7 +87,7 @@ describe('settings store', () => {
 
   it('returns defaults and merges updates', () => {
     const store = createSettingsStore(memory());
-    expect(store.load()).toEqual({ home: null, closeToHome: false, speeds: { walk: 5, run: 10, bike: 22 } });
+    expect(store.load()).toEqual({ ...DEFAULTS_PLAIN });
     store.update({ home: { lat: 52, lng: 5, label: 'Thuis' }, speeds: { run: 10.5 } });
     const s = store.load();
     expect(s.home).toEqual({ lat: 52, lng: 5, label: 'Thuis' });
@@ -95,9 +97,20 @@ describe('settings store', () => {
   it('ignores corrupt or out-of-range values', () => {
     const storage = memory();
     storage.setItem('looply.settings.v1', '{"speeds":{"run":-3,"bike":"fast"},"home":{"lat":"x"}}');
-    expect(createSettingsStore(storage).load()).toEqual({ home: null, closeToHome: false, speeds: { walk: 5, run: 10, bike: 22 } });
+    expect(createSettingsStore(storage).load()).toEqual({ ...DEFAULTS_PLAIN });
     storage.setItem('looply.settings.v1', 'not json');
     expect(createSettingsStore(storage).load().speeds.walk).toBe(5);
+  });
+
+  it('remembers the mode and the distance per mode, within each mode’s range', () => {
+    const storage = memory();
+    const store = createSettingsStore(storage);
+    store.update({ mode: 'bike', distances: { bike: 45 } });
+    store.update({ distances: { walk: 3.5 } });
+    expect(store.load().mode).toBe('bike');
+    expect(store.load().distances).toEqual({ walk: 3.5, run: 7.5, bike: 45 });
+    storage.setItem('looply.settings.v1', '{"mode":"swim","distances":{"walk":50,"bike":2},"resultsHints":-1}');
+    expect(createSettingsStore(storage).load()).toMatchObject({ mode: 'walk', distances: { walk: 5, bike: 30 }, resultsHints: 0 });
   });
 });
 

@@ -1,52 +1,127 @@
-/* Design tokens — Apple design system (Action Blue, near-black ink, parchment)
-   combined with iOS 26 HIG dark-mode conventions. */
+/* Looply "Lucht" design tokens (design v2, 25 sep 2026; keuzes Jelle 26 sep).
+   The app follows the sky above the start point, not the system light/dark mode.
+   data-phase (dawn | day | dusk | night) sits on <html>, set by src/ui/sky.js.
+   Dawn, dusk and night: deep sky, white ink. Day: a pale real sky with dark ink (Jelle's choice).
+   Contrast per phase is verified in the UI spec (ink >= 5.7:1, ink-2 >= 4.6:1; light day ink >= 7.7:1). */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 
-  --color-accent: #0066cc;
-  --color-accent-focus: #0071e3;
-  --color-ink: #1d1d1f;
-  --color-ink-secondary: rgba(60, 60, 67, 0.6);
-  --color-bg: #f5f5f7;
-  --color-surface: #ffffff;
-  --color-hairline: rgba(0, 0, 0, 0.08);
-  --color-track: rgba(118, 118, 128, 0.12);
-  --color-danger: #ff3b30;
-  --color-sheet-bg: rgba(255, 255, 255, 0.72);
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 
-  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-
-  --weight-light: 300;
-  --weight-regular: 400;
-  --weight-semibold: 600;
-  --weight-bold: 700;
-
-  --radius-pill: 999px;
-  --radius-card: 18px;
-  --radius-group: 10px;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-
+  --gutter: 20px;
+  --tap: 44px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Ink and accents (white on the deep skies) */
+  --ink: #ffffff;
+  --ink-2: rgba(255, 255, 255, 0.85);
+  --ink-3: rgba(255, 255, 255, 0.62);
+  --hairline: rgba(255, 255, 255, 0.18);
+  --chip-on: #ffffff;
+  --on-chip: var(--deep);
+  --route-line: #ffffff;
+  --route-glow: rgba(255, 255, 255, 0.5);
+  --chart-fill: rgba(255, 255, 255, 0.24);
+  --chart-fill-dark: rgba(255, 255, 255, 0.1);
+  --chart-axis: rgba(255, 255, 255, 0.35);
+  --chart-guide: rgba(255, 255, 255, 0.5);
+  --warn: #ffd27a;
+  --warn-ink: #3d2600;
+  --warn-rim: transparent;
+  --success: #8ff0b0;
+  --destructive: #ff6961;
+
+  /* Glass */
+  --glass-base: var(--deep);
+  --glass-tint: 28%;
+  --glass-strong: 55%;
+  --glass-sheen: rgba(255, 255, 255, 0.08);
+  --glass-rim: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  --glass-lite: rgba(255, 255, 255, 0.16);
+
+  /* Map under the posters: a dark map for the deep skies (see components.css) */
+  --map-opacity: 0.42;
+  --map-filter: invert(1) hue-rotate(180deg) saturate(0.4) brightness(0.9);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --ease-draw: cubic-bezier(0.3, 0.7, 0.2, 1);
+
+  /* Default phase = dusk */
+  --sky-top: #18224f;
+  --sky-mid: #4f3474;
+  --sky-low: #8c3e2c;
+  --sun: #ff7a3d;
+  --sun-a: 20%;
+  --sun-x: 78%;
+  --sun-y: 96%;
+  --deep: #18224f;
+  --stars: 0.35;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-accent: #0a84ff;
-    --color-accent-focus: #0a84ff;
-    --color-ink: #ffffff;
-    --color-ink-secondary: rgba(235, 235, 245, 0.6);
-    --color-bg: #000000;
-    --color-surface: #1c1c1e;
-    --color-hairline: rgba(255, 255, 255, 0.14);
-    --color-track: rgba(118, 118, 128, 0.24);
-    --color-sheet-bg: rgba(28, 28, 30, 0.72);
+:root[data-phase="dawn"] {
+  --sky-top: #26336b; --sky-mid: #5a4180; --sky-low: #7c3f5c;
+  --sun: #ff8a5c; --sun-a: 22%; --sun-x: 22%; --sun-y: 96%;
+  --deep: #26336b; --stars: 0;
+}
+
+:root[data-phase="dusk"] {
+  --sky-top: #18224f; --sky-mid: #4f3474; --sky-low: #8c3e2c;
+  --sun: #ff7a3d; --sun-a: 20%; --sun-x: 78%; --sun-y: 96%;
+  --deep: #18224f; --stars: 0.35;
+}
+
+:root[data-phase="night"] {
+  --sky-top: #050a1f; --sky-mid: #0c1840; --sky-low: #1b3166;
+  --sun: #8ea6ff; --sun-a: 30%; --sun-x: 74%; --sun-y: 14%;
+  --deep: #0c1840; --stars: 1;
+}
+
+/* Pale day sky with dark ink (UX spec; ink >= 7.7:1, ink-2 >= 5.6:1). */
+:root[data-phase="day"] {
+  color-scheme: light;
+  --sky-top: #7ab7ee; --sky-mid: #a9d2f7; --sky-low: #e2f0fd;
+  --sun: #fff3c4; --sun-a: 70%; --sun-x: 70%; --sun-y: 8%;
+  --deep: #0f1f3d; --stars: 0;
+  --ink: #0f1f3d;
+  --ink-2: #22365f;
+  --ink-3: #41577f;
+  --hairline: rgba(15, 31, 61, 0.16);
+  --chip-on: #0f1f3d;
+  --on-chip: #ffffff;
+  --route-line: #0f1f3d;
+  --route-glow: rgba(255, 255, 255, 0.9);
+  --chart-fill: rgba(15, 31, 61, 0.14);
+  --chart-fill-dark: rgba(15, 31, 61, 0.06);
+  --chart-axis: rgba(15, 31, 61, 0.35);
+  --chart-guide: rgba(15, 31, 61, 0.5);
+  --warn-rim: #b07800;
+  --glass-base: #ffffff;
+  --glass-tint: 45%;
+  --glass-strong: 72%;
+  --glass-sheen: rgba(255, 255, 255, 0.2);
+  --glass-rim: inset 0 0 0 0.5px rgba(255, 255, 255, 0.7), 0 0 0 0.5px rgba(15, 31, 61, 0.18), inset 0 1px 0 #ffffff;
+  --glass-lite: rgba(15, 31, 61, 0.08);
+  --success: #0a7a3c;
+  --destructive: #c4001a;
+  --map-opacity: 0.55;
+  --map-filter: saturate(0.5);
+}
+
+@media (prefers-contrast: more) {
+  :root, :root[data-phase] {
+    --glass-tint: 45%;
+    --glass-strong: 75%;
+    --route-glow: transparent;
+    --sun-a: 0%;
   }
+  :root:not([data-phase="day"]) { --ink-2: rgba(255, 255, 255, 0.95); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root, :root[data-phase] { --glass-tint: 92%; --glass-strong: 96%; }
 }

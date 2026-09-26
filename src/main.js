@@ -11,273 +11,262 @@ import {
   deleteRoute,
   createSettingsStore,
   setSpeeds,
+  sunTimes,
+  createWeatherSource,
 } from './core/index.js';
 import { loadGoogleMaps } from './ui/googleLoader.js';
-import { createMap } from './ui/map.js';
+import { createRouteMap } from './ui/map.js';
+import { createSky } from './ui/sky.js';
+import { h, icon } from './ui/dom.js';
 import { createTabBar } from './ui/components/tabbar.js';
-import { createSheet } from './ui/components/sheet.js';
-import { createStartPill, openStartSheet } from './ui/components/startPicker.js';
-import { renderPlanSheet } from './ui/screens/plan.js';
-import { renderResultsSheet } from './ui/screens/results.js';
-import { renderSavedList } from './ui/screens/saved.js';
-import { renderSettings } from './ui/screens/settings.js';
+import { showSheet, sheetHead } from './ui/components/sheet.js';
 import { showToast } from './ui/components/toast.js';
-import { createBackButton } from './ui/components/backButton.js';
-import { openLocationIntro, locationIntroSeen } from './ui/components/locationIntro.js';
+import { openStartSheet } from './ui/components/startSheet.js';
+import { createPlaceSearch } from './ui/places.js';
+import { renderToday } from './ui/screens/today.js';
+import { renderLoading, renderError, renderPosters, openMapSheet } from './ui/screens/results.js';
+import { renderSaved } from './ui/screens/saved.js';
+import { renderSettings } from './ui/screens/settings.js';
+import { PROTO_DEFAULTS, protoNow, protoWeather, openProtoPanel } from './ui/proto.js';
+import pkg from '../package.json';
 
 const params = new URLSearchParams(window.location.search);
 const forceMock = params.get('mock') === '1';
 const apiKey = window.LOOPLY_CONFIG?.googleMapsApiKey || '';
 const useGoogle = !forceMock && Boolean(apiKey);
 
+const UTRECHT = { lat: 52.0907, lng: 5.1214 };
+const WELCOME_KEY = 'looply.locationIntro.v1'; // shared with the old location intro: seen once is enough
+const WEATHER_EVERY_MS = 15 * 60 * 1000;
+
 const state = {
-  tab: 'plan', // 'plan' | 'saved' | 'settings'
-  planScreen: 'form', // 'form' | 'results'
-  savedScreen: 'list', // 'list' | 'detail'
-  mode: 'walk',
-  distanceByMode: { walk: 5, run: 7.5, bike: 30 },
-  start: null,
-  startLabel: 'Startpunt kiezen',
-  routesStatus: 'idle', // 'idle' | 'loading' | 'ready' | 'error'
-  progressText: '',
-  errorMessage: '',
-  routes: [], // the last search's results; a saved route opened from the Saved tab never replaces them
-  selectedRouteId: null,
-  savedRoutes: [],
-  savedRoute: null, // route shown in the Saved tab's detail view
+  tab: 'today', // 'today' | 'saved' | 'settings'
+  flow: null, // null | 'loading' | 'error' | 'results' | 'saved-route': full screen over the tabs
+  start: null, // { latLng, label, kind: 'home' | 'here' | 'place' }
+  askHome: false, // "Is dit thuis?" under the start pill
+  routes: [], // the last search's results
+  query: null, // the plan they were found for (see queryKey)
+  page: 0, // poster in view
+  savedFilter: 'all',
+  weather: null, // real weather at the start point (null: none)
+  locationState: 'prompt', // 'granted' | 'denied' | 'prompt'
+  confirmingHomeDelete: false,
 };
 
-let map = null;
-let provider = null;
-let searchController = null; // AbortController of the search in progress
-let shownRouteId; // route currently drawn on the map (undefined: nothing drawn yet)
-let startVersion = 0; // bumped on every start change, so a late location fix cannot overwrite a newer choice
-
+const proto = { ...PROTO_DEFAULTS };
 const settingsStore = openSettingsStore();
-let settings = settingsStore.load(); // { home, closeToHome, speeds }
+let settings = settingsStore.load();
 setSpeeds(settings.speeds);
 
-const app = document.getElementById('app');
-const mapContainer = document.createElement('div');
-mapContainer.id = 'map';
-mapContainer.className = 'map-layer';
-const screenLayer = document.createElement('div');
-screenLayer.className = 'screen-layer';
-app.append(mapContainer, screenLayer);
+let provider = createMockProvider();
+let google = null;
+let routeMap = null; // one Google map, created when the first results show
+let placeSearch = createPlaceSearch(null);
+const weatherAt = createWeatherSource();
+let searchController = null;
+let lastAgain = false; // a retry repeats the kind of search that failed
+let lastFix = null; // last location fix from the start sheet or the welcome
+let flowView = null; // the element on the flow layer (loading, error or posters)
+let lastTouch = 0;
 
-init();
+// ---------- Layout ----------
+
+const app = document.getElementById('app');
+const sky = createSky(document.body);
+const page = h('main', { class: 'page' });
+const flow = h('section', { class: 'flow', hidden: true });
+const tabbarSlot = h('div');
+const protoBtn = h('button', { class: 'proto', type: 'button', onclick: openProto, 'aria-label': 'Prototype: tijd, weer en fouten nabootsen' }, 'Prototype');
+app.append(page, flow, tabbarSlot, protoBtn);
+for (const type of ['pointerdown', 'keydown', 'scroll']) app.addEventListener(type, () => (lastTouch = Date.now()), true);
 
 async function init() {
   if (useGoogle) {
     try {
-      const google = await loadGoogleMaps(apiKey);
+      google = await loadGoogleMaps(apiKey);
       provider = createGoogleProvider(google);
-      map = createMap({ container: mapContainer, mode: 'google', google });
+      placeSearch = createPlaceSearch(google);
     } catch (err) {
       console.error('Google Maps kon niet geladen worden, terug naar demo-modus.', err);
-      provider = createMockProvider();
-      map = createMap({ container: mapContainer, mode: 'svg' });
-      showToast('Google Maps laadt niet (verbinding of kaartsleutel). Je ziet nu de demo-modus met geschetste routes.', { durationMs: 8000 });
+      google = null;
+      showToast('Google Maps laadt niet. Je ziet nu de demo-modus met geschetste routes.', { durationMs: 6000 });
     }
+  }
+  watchLocationPermission();
+
+  if (settings.home) {
+    setStart(settings.home, 'Thuis', 'home');
+  } else if (welcomeSeen()) {
+    render();
+    locate().then((error) => !error && useFix());
   } else {
-    provider = createMockProvider();
-    map = createMap({ container: mapContainer, mode: 'svg' });
+    render();
+    openWelcome();
   }
-
-  render();
-  if (locationIntroSeen()) {
-    resolveCurrentLocation();
-  } else {
-    openLocationIntro({ onAllow: resolveCurrentLocation, onChoose: openStartPicker });
-  }
+  refreshWeather();
+  setInterval(tick, 60 * 1000);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && tick());
 }
 
-function resolveCurrentLocation() {
-  if (!navigator.geolocation) {
-    showToast('Dit toestel geeft geen locatie door. Kies zelf een startpunt.');
-    return;
-  }
-  // A start picked by hand while the fix was pending wins; the late fix (or its error) is dropped.
-  const askedAt = startVersion;
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      if (startVersion === askedAt) setStart({ lat: pos.coords.latitude, lng: pos.coords.longitude }, 'Huidige locatie');
-    },
-    (err) => {
-      if (startVersion === askedAt) showToast(locationErrorMessage(err), { durationMs: 8000 });
-    },
-    { timeout: 10000 }
-  );
+// ---------- Time, sun, weather ----------
+
+function skySpot() {
+  return state.start?.latLng ?? settings.home ?? UTRECHT;
 }
 
-function locationErrorMessage(err) {
-  switch (err?.code) {
-    case 1: // PERMISSION_DENIED
-      return 'Looply mag je locatie niet gebruiken. Sta locatie toe voor Safari-websites (Instellingen › Privacy en beveiliging › Locatievoorzieningen), of kies zelf een startpunt.';
-    case 3: // TIMEOUT
-      return 'Je locatie bepalen duurde te lang. Probeer het opnieuw of kies zelf een startpunt.';
-    default:
-      return 'Je locatie is nu niet te bepalen. Kies zelf een startpunt.';
-  }
+function sunAt(ms, spot = skySpot()) {
+  return sunTimes(new Date(ms), spot.lat, spot.lng);
 }
 
-function setStart(latLng, label) {
-  startVersion++;
-  state.start = latLng;
-  state.startLabel = label;
-  map.setStart(latLng);
-  render();
+function now() {
+  const real = Date.now();
+  return protoNow(proto, real, sunAt(real));
 }
+
+function weatherNow(t) {
+  const fake = protoWeather(proto, t);
+  return fake === undefined ? state.weather : fake;
+}
+
+let weatherAsked = 0;
+async function refreshWeather() {
+  weatherAsked = Date.now();
+  const spot = skySpot();
+  const w = await weatherAt(spot);
+  if (spot !== skySpot()) return; // the start moved meanwhile
+  const changed = JSON.stringify(w) !== JSON.stringify(state.weather);
+  state.weather = w;
+  if (changed && !state.flow && state.tab === 'today' && idle()) renderTab();
+}
+
+function idle() {
+  return Date.now() - lastTouch > 10000 && !document.querySelector('.scrim');
+}
+
+/** Once a minute and when the app comes back: sky, texts, weather. */
+function tick() {
+  sky.update(now(), sunAt(now()));
+  if (Date.now() - weatherAsked > WEATHER_EVERY_MS) refreshWeather();
+  if (!state.flow && state.tab === 'today' && idle()) renderTab();
+}
+
+// ---------- Rendering ----------
 
 function render() {
-  state.savedRoutes = listRoutes();
-  renderScreenLayer();
-  renderTabBar();
+  sky.update(now(), sunAt(now()));
+  renderTab();
+  renderChrome();
 }
 
-function renderTabBar() {
-  const existing = app.querySelector('.tabbar');
-  if (existing) existing.remove();
-  app.appendChild(
-    createTabBar({
-      active: state.tab,
-      onSelect: (tab) => {
-        if (state.tab === tab) {
-          if (tab === 'plan') {
-            if (state.routesStatus === 'loading') abortSearch();
-            state.planScreen = 'form';
-          }
-          if (tab === 'saved') state.savedScreen = 'list';
-        }
-        state.tab = tab;
-        render();
-      },
-    })
-  );
+function renderChrome() {
+  const full = Boolean(state.flow);
+  page.hidden = full;
+  flow.hidden = !full;
+  protoBtn.hidden = full || !settings.showProto;
+  tabbarSlot.replaceChildren(full ? '' : createTabBar({ active: state.tab, onSelect: selectTab }));
 }
 
-function renderScreenLayer() {
-  screenLayer.textContent = '';
-  screenLayer.className = 'screen-layer';
-
-  if (state.tab === 'settings') {
-    mapContainer.hidden = true;
-    screenLayer.classList.add('screen-layer--saved');
-    screenLayer.appendChild(
-      renderSettings({
-        settings,
-        currentStart: state.start ? { latLng: state.start, label: state.startLabel } : null,
-        onSetHome: handleSetHome,
-        onClearHome: () => updateSettings({ home: null }),
-        onSpeedChange: (mode, kmh, buttonLabel) =>
-          updateSettings({ speeds: { [mode]: kmh } }, { refocus: `[aria-label="${buttonLabel}"]:not(:disabled)` }),
-      })
-    );
-    return;
-  }
-
-  if (state.tab === 'saved' && state.savedScreen === 'list') {
-    mapContainer.hidden = true;
-    screenLayer.classList.add('screen-layer--saved');
-    screenLayer.appendChild(
-      renderSavedList({ routes: state.savedRoutes, onOpen: openSavedDetail, onDelete: handleDelete })
-    );
-    return;
-  }
-
-  mapContainer.hidden = false;
-
-  if (state.tab === 'plan' && state.planScreen === 'form') {
-    showOnMap(null);
-    screenLayer.appendChild(createStartPill({ label: state.startLabel, onTap: openStartPicker }));
-    screenLayer.appendChild(
-      createSheet({
-        content: renderPlanSheet({
-          mode: state.mode,
-          distanceKm: state.distanceByMode[state.mode],
-          closeToHome: settings.closeToHome,
-          onModeChange: handleModeChange,
-          onDistanceChange: handleDistanceChange,
-          onCloseToHomeChange: (on) => updateSettings({ closeToHome: on }, { rerender: false }),
-          onSearch: () => runSearch(),
-        }),
-      })
-    );
-    return;
-  }
-
-  // Results view — reused for both plan-tab search results and a saved-tab detail view.
-  const inSaved = state.tab === 'saved';
-  const routes = inSaved ? [state.savedRoute] : state.routes;
-  const selectedRouteId = inSaved ? state.savedRoute.id : state.selectedRouteId;
-  const status = inSaved ? 'ready' : state.routesStatus;
-  if (status === 'ready') showOnMap(routes.find((r) => r.id === selectedRouteId) ?? null);
-  else showOnMap(null);
-
-  screenLayer.appendChild(
-    createBackButton({ label: inSaved ? 'Terug naar opgeslagen' : 'Terug naar plannen', onTap: handleBack })
-  );
-  const savedIds = new Set(state.savedRoutes.map((r) => r.id));
-  screenLayer.appendChild(
-    createSheet({
-      content: renderResultsSheet({
-        status,
-        progressText: state.progressText,
-        errorMessage: state.errorMessage,
-        routes,
-        selectedRouteId,
-        savedIds,
-        onSelectRoute: handleSelectRoute,
-        onSave: handleSave,
-        onOpenMaps: handleOpenMaps,
-        onRetry: () => runSearch({ again: lastSearchAgain }),
-        onCancel: handleCancel,
-        onAgain: !inSaved && status === 'ready' ? () => runSearch({ again: true }) : undefined,
-      }),
-    })
-  );
+function selectTab(tab) {
+  state.tab = tab;
+  state.confirmingHomeDelete = false;
+  renderTab();
+  renderChrome();
+  page.scrollTop = 0;
 }
 
-/** Draw `route` on the map and fit to it, only when it differs from what is already drawn. */
-function showOnMap(route) {
-  const id = route?.id ?? null;
-  if (id === shownRouteId) return;
-  shownRouteId = id;
-  map.showRoute(route);
-  if (route) map.fitTo(route);
+function renderTab() {
+  const t = now();
+  sky.update(t, sunAt(t));
+  if (state.tab === 'today') page.replaceChildren(todayView(t));
+  else if (state.tab === 'saved') page.replaceChildren(savedView());
+  else page.replaceChildren(settingsView());
 }
 
-function handleBack() {
-  if (state.tab === 'saved') {
-    state.savedScreen = 'list';
-  } else {
-    if (state.routesStatus === 'loading') abortSearch();
-    state.planScreen = 'form';
-  }
-  render();
+function todayView(t) {
+  const mode = settings.mode;
+  return renderToday({
+    mode,
+    km: settings.distances[mode],
+    near: settings.closeToHome,
+    now: t,
+    sun: sunAt(t),
+    weather: weatherNow(t),
+    phase: sky.phase,
+    start: state.start,
+    askHome: state.askHome,
+    resultsFor: (km) => (state.routes.length && state.query === queryKey(km) ? state.routes.length : 0),
+    onStartTap: () => openStartPicker('start'),
+    onSaveHome: saveStartAsHome,
+    onMode: (m) => {
+      updateSettings({ mode: m });
+      renderTab();
+    },
+    onKm: (km) => updateSettings({ distances: { [mode]: km } }),
+    onNear: (on) => updateSettings({ closeToHome: on }),
+    onSearch: () => runSearch(),
+    onBackToResults: () => showResults(false),
+  });
 }
 
-function handleCancel() {
+function savedView() {
+  return renderSaved({
+    routes: listRoutes(),
+    filter: state.savedFilter,
+    onFilter: (f) => {
+      state.savedFilter = f;
+      renderTab();
+    },
+    onOpen: showSavedRoute,
+  });
+}
+
+function settingsView() {
+  return renderSettings({
+    settings,
+    locationState: proto.loc === 'denied' ? 'denied' : state.locationState,
+    version: `${pkg.version.split('.').slice(0, 2).join(',')} · Lucht`,
+    confirmingHomeDelete: state.confirmingHomeDelete,
+    onEditHome: () => openStartPicker('home'),
+    onAskDeleteHome: () => {
+      state.confirmingHomeDelete = true;
+      renderTab();
+      page.querySelector('[role="alert"] button')?.focus();
+    },
+    onCancelDeleteHome: () => {
+      state.confirmingHomeDelete = false;
+      renderTab();
+    },
+    onDeleteHome: deleteHome,
+    onSpeed: (mode, kmh, label) => {
+      updateSettings({ speeds: { [mode]: kmh } });
+      renderTab();
+      // The page is rebuilt: put focus back on the button the user was on (VoiceOver would lose it).
+      page.querySelector(`[data-step="${label}"]`)?.focus();
+    },
+    onProto: (on) => {
+      updateSettings({ showProto: on });
+      renderChrome();
+    },
+  });
+}
+
+function setFlow(kind, view) {
+  flowView?.dispose?.();
+  flowView = view;
+  state.flow = kind;
+  flow.replaceChildren(view ?? '');
+  renderChrome();
+  view?.querySelector('h2')?.focus?.({ preventScroll: true });
+}
+
+function closeFlow() {
   abortSearch();
-  state.planScreen = 'form';
-  render();
+  setFlow(null, null);
+  renderTab();
+  page.querySelector('h1')?.focus?.({ preventScroll: true });
 }
 
-function abortSearch() {
-  searchController?.abort();
-  searchController = null;
-  state.routesStatus = 'idle';
-}
-
-function handleModeChange(mode) {
-  state.mode = mode;
-  render();
-}
-
-function handleDistanceChange(value) {
-  // Slider updates its own label; no full re-render needed mid-drag.
-  state.distanceByMode[state.mode] = value;
-}
+// ---------- Settings ----------
 
 /** Settings store; when Safari blocks storage altogether, settings live in memory for this session. */
 function openSettingsStore() {
@@ -289,29 +278,192 @@ function openSettingsStore() {
   }
 }
 
-/** Save a settings change; the UI follows the stored result. */
-function updateSettings(patch, { rerender = true, refocus } = {}) {
+let storageWarned = false;
+function updateSettings(patch) {
   // Merge on what is in memory, so a change that could not be stored is not undone by the next one.
-  const next = { ...settings, ...patch, speeds: { ...settings.speeds, ...(patch.speeds || {}) } };
+  const next = {
+    ...settings,
+    ...patch,
+    speeds: { ...settings.speeds, ...(patch.speeds || {}) },
+    distances: { ...settings.distances, ...(patch.distances || {}) },
+  };
   try {
     settings = settingsStore.update(next);
   } catch (err) {
     console.error('Saving settings failed', err);
     settings = next;
-    showToast('Deze instelling kon niet worden bewaard; hij geldt alleen tot je de app sluit.');
+    if (!storageWarned) showToast('Instellingen kunnen niet worden bewaard; ze gelden tot je de app sluit.');
+    storageWarned = true;
   }
   setSpeeds(settings.speeds);
-  if (!rerender) return;
-  render();
-  // The page is rebuilt: put focus back on the control the user was on (VoiceOver would lose it).
-  if (refocus) (screenLayer.querySelector(refocus) ?? screenLayer.querySelector('.large-title'))?.focus();
 }
 
-function handleSetHome() {
-  if (!state.start) return;
-  const label = state.startLabel === 'Huidige locatie' ? 'Bewaard vanaf je locatie' : state.startLabel;
-  updateSettings({ home: { lat: state.start.lat, lng: state.start.lng, label } });
-  showToast('Thuis is bewaard. Je vindt het bovenaan in de startpunt-kiezer.');
+// ---------- Start point and location ----------
+
+function welcomeSeen() {
+  try {
+    return localStorage.getItem(WELCOME_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markWelcomeSeen() {
+  try {
+    localStorage.setItem(WELCOME_KEY, '1');
+  } catch {
+    // Private mode: the welcome simply shows again next time.
+  }
+}
+
+function watchLocationPermission() {
+  navigator.permissions
+    ?.query({ name: 'geolocation' })
+    .then((status) => {
+      state.locationState = status.state;
+      status.onchange = () => {
+        state.locationState = status.state;
+        if (state.tab === 'settings' && !state.flow) renderTab();
+      };
+    })
+    .catch(() => {});
+}
+
+/** Ask for the location. → null on success (the fix is in lastFix), or 'denied' | 'timeout' | 'unavailable'. */
+function locate() {
+  if (proto.loc === 'denied') return Promise.resolve('denied');
+  if (!navigator.geolocation) return Promise.resolve('unavailable');
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        state.locationState = 'granted';
+        resolve(null);
+      },
+      (err) => {
+        if (err?.code === 1) state.locationState = 'denied';
+        resolve(err?.code === 1 ? 'denied' : err?.code === 3 ? 'timeout' : 'unavailable');
+      },
+      { timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
+function useFix() {
+  if (state.start && state.start.kind !== 'here') return; // a start picked meanwhile wins
+  setStart(lastFix, 'Huidige locatie', 'here');
+}
+
+function setStart(latLng, label, kind) {
+  state.start = { latLng: { lat: latLng.lat, lng: latLng.lng }, label, kind };
+  state.askHome = kind === 'here' && !settings.home && !settings.homeAsked;
+  if (state.askHome) updateSettings({ homeAsked: true });
+  if (!state.flow) render();
+  refreshWeather();
+}
+
+function saveStartAsHome() {
+  const { latLng } = state.start;
+  updateSettings({ home: { ...latLng, label: 'Bewaard vanaf je locatie' } });
+  state.askHome = false;
+  setStart(latLng, 'Thuis', 'home');
+}
+
+function deleteHome() {
+  const old = settings.home;
+  updateSettings({ home: null });
+  state.confirmingHomeDelete = false;
+  const wasStart = state.start?.kind === 'home';
+  if (wasStart) state.start = { ...state.start, kind: 'place', label: 'Vorige Thuis' };
+  renderTab();
+  showToast('Thuis verwijderd', {
+    undo: () => {
+      updateSettings({ home: old });
+      if (wasStart) state.start = { ...state.start, kind: 'home', label: 'Thuis' };
+      renderTab();
+    },
+  });
+}
+
+function openStartPicker(purpose) {
+  openStartSheet({
+    purpose,
+    home: settings.home,
+    currentKind: state.start?.kind,
+    locate,
+    search: placeSearch,
+    onPick: (choice) => {
+      if (purpose === 'home') {
+        const home =
+          choice.kind === 'here'
+            ? { ...lastFix, label: 'Bewaard vanaf je locatie' }
+            : { ...choice.latLng, label: choice.label };
+        updateSettings({ home });
+        if (state.start?.kind === 'home' || !state.start) setStart(home, 'Thuis', 'home');
+        else renderTab();
+        return;
+      }
+      if (choice.kind === 'home') setStart(settings.home, 'Thuis', 'home');
+      else if (choice.kind === 'here') setStart(lastFix, 'Huidige locatie', 'here');
+      else setStart(choice.latLng, choice.label, 'place');
+    },
+  });
+}
+
+function openWelcome() {
+  const sheet = showSheet({
+    label: 'Welkom',
+    content: h(
+      'div',
+      { class: 'welcome' },
+      h('span', { class: 'welcome__icon' }, icon('loc')),
+      h('h2', { class: 't-title3', tabindex: '-1' }, 'Waar begin je meestal?'),
+      h('p', { class: 't-callout', style: 'margin:0 0 6px' }, 'Looply zoekt rondjes vanaf je startpunt. Je locatie blijft op je telefoon en gaat alleen naar Google om routes te berekenen.'),
+      h('button', {
+        class: 'btn btn--primary btn--full',
+        type: 'button',
+        onclick: async () => {
+          markWelcomeSeen();
+          sheet.close();
+          const error = await locate();
+          if (!error) useFix();
+          else openStartPicker('start');
+        },
+      }, 'Gebruik mijn locatie'),
+      h('button', {
+        class: 'btn--text',
+        type: 'button',
+        onclick: () => {
+          markWelcomeSeen();
+          sheet.close();
+          openStartPicker('start');
+        },
+      }, 'Ik vul een adres in')
+    ),
+  });
+}
+
+// ---------- Search ----------
+
+function queryKey(km = settings.distances[settings.mode]) {
+  const s = state.start?.latLng;
+  return `${settings.mode}|${km}|${settings.closeToHome}|${s ? `${s.lat.toFixed(5)},${s.lng.toFixed(5)}` : ''}`;
+}
+
+function abortSearch() {
+  searchController?.abort();
+  searchController = null;
+}
+
+const FAKE_FAILURES = { offline: 'OFFLINE', answer: 'NO_ANSWER', noroutes: 'NO_ROUTES', pairs: 'NO_PAIRS' };
+
+async function fakeFailure(code, loading, signal) {
+  for (let i = 1; i <= 8; i++) {
+    await new Promise((r) => setTimeout(r, 200));
+    if (signal.aborted) throw Object.assign(new Error('aborted'), { code: 'ABORTED' });
+    loading.progress(i, 8);
+  }
+  throw Object.assign(new Error('Nagebootste fout'), { code });
 }
 
 /**
@@ -319,115 +471,181 @@ function handleSetHome() {
  * screen, so those streets are avoided too. Saved routes of this mode are always avoided, so a
  * search favours loops you have not saved yet.
  */
-let lastSearchAgain = false; // a retry repeats the kind of search that failed
-
 async function runSearch({ again = false } = {}) {
-  lastSearchAgain = again;
+  lastAgain = again;
   if (!state.start) {
-    showToast('Kies eerst een startpunt.');
-    openStartPicker();
+    openStartPicker('start');
     return;
   }
-  searchController?.abort();
+  abortSearch();
   const controller = new AbortController();
   searchController = controller;
+  const { mode, closeToHome } = settings;
+  const km = settings.distances[mode];
+  const key = queryKey(km);
   const avoidPaths = [
-    ...state.savedRoutes.filter((r) => r.mode === state.mode).map((r) => r.path),
+    ...listRoutes().filter((r) => r.mode === mode).map((r) => r.path),
     ...(again ? state.routes.map((r) => r.path) : []),
   ];
-  const generate = settings.closeToHome ? generateTwoLoopRoutes : generateRoutes;
 
-  state.tab = 'plan';
-  state.planScreen = 'results';
-  state.routesStatus = 'loading';
-  state.progressText = 'Routes zoeken…';
-  state.routes = [];
-  state.selectedRouteId = null;
-  render();
+  const loading = renderLoading({ again, onCancel: closeFlow });
+  setFlow('loading', loading);
 
   try {
+    const fake = FAKE_FAILURES[proto.fail];
+    if (fake && (fake !== 'NO_PAIRS' || closeToHome)) await fakeFailure(fake, loading, controller.signal);
+    const generate = closeToHome ? generateTwoLoopRoutes : generateRoutes;
     const routes = await generate({
-      start: state.start,
-      distanceKm: state.distanceByMode[state.mode],
-      mode: state.mode,
+      start: state.start.latLng,
+      distanceKm: km,
+      mode,
       provider,
       count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
-      toleranceKm: defaultToleranceKm(state.mode),
-      maxProviderCalls: maxProviderCallsFor(state.distanceByMode[state.mode]),
-      onProgress: (info) => {
-        if (controller === searchController) handleProgress(info);
-      },
+      toleranceKm: defaultToleranceKm(mode),
+      maxProviderCalls: maxProviderCallsFor(km),
+      onProgress: (info) => controller === searchController && loading.progress(info?.done, info?.total),
       signal: controller.signal,
       avoidPaths,
     });
     if (controller !== searchController) return;
-    state.routesStatus = 'ready';
+    searchController = null;
     state.routes = routes;
-    state.selectedRouteId = routes[0]?.id ?? null;
+    state.query = key;
+    state.page = 0;
+    showResults(true);
   } catch (err) {
     if (err?.code === 'ABORTED' || controller !== searchController) return;
-    state.routesStatus = 'error';
-    state.errorMessage = errorMessageFor(err);
+    searchController = null;
+    if (again && state.routes.length) {
+      showResults(false);
+      showToast(offline(err) ? 'Geen internet. Je ziet nog de vorige rondjes.' : 'Geen andere rondjes gevonden. Je ziet nog de vorige.');
+      return;
+    }
+    setFlow('error', renderError({ card: errorCard(err, km), onBack: closeFlow }));
   }
-  searchController = null;
-  render();
 }
 
-function handleProgress(info) {
-  // generator.js calls onProgress({ done, total }) after each attempted candidate.
-  const done = info?.done ?? info?.current ?? info?.attempt;
-  const total = info?.total ?? info?.count;
-  state.progressText = Number.isFinite(done) && Number.isFinite(total)
-    ? `Route ${done} van ${total}…`
-    : 'Routes zoeken…';
-  // Only the text changes: rebuilding the screen on every tick would swap out the Annuleren and
-  // back buttons mid-tap (iOS drops the tap) and reset a slider or list the user is touching.
-  const label = screenLayer.querySelector('.results-sheet__progress');
-  if (label) label.textContent = state.progressText;
+function offline(err) {
+  return navigator.onLine === false || err?.code === 'OFFLINE';
 }
 
-function errorMessageFor(err) {
-  if (navigator.onLine === false) {
-    return 'Je bent offline. Controleer je internetverbinding en probeer het opnieuw.';
+/** One message and one action per failure (UX spec §2.6). */
+function errorCard(err, km) {
+  const kmText = `${km.toFixed(1).replace('.', ',')} km`;
+  const retry = () => runSearch({ again: lastAgain });
+  if (offline(err)) {
+    return { icon: 'wifi', title: 'Geen internet', body: 'Voor nieuwe rondjes heeft Looply verbinding nodig. Bewaarde rondjes kun je wel openen.', cta: 'Opnieuw', action: retry };
   }
   switch (err?.code) {
     case 'NO_ANSWER':
-      return 'Google gaf geen antwoord. Controleer je internetverbinding en probeer het opnieuw.';
-    case 'NO_PAIRS':
-      return 'Geen twee lussen gevonden die samen deze afstand halen. Probeer een andere afstand of zet "Dicht bij huis" uit.';
+      return { icon: 'alert', title: 'Google antwoordt niet', body: 'Het duurde te lang. Meestal lukt het bij een tweede poging.', cta: 'Opnieuw', action: retry };
     case 'NO_ROUTES':
     case 'ZERO_RESULTS':
-      return 'Geen routes gevonden voor deze afstand en locatie. Probeer een andere afstand.';
+      return { icon: 'alert', title: 'Geen rondje gevonden', body: `Vanaf hier vonden we geen goed rondje van ${kmText}. Probeer een iets andere afstand of startpunt.`, cta: 'Afstand aanpassen', action: closeFlow };
+    case 'NO_PAIRS':
+      return {
+        icon: 'alert',
+        title: 'Dicht bij huis lukt niet',
+        body: `Bij ${kmText} worden de twee lussen te kort. Kies een langere afstand of zet Dicht bij huis uit.`,
+        cta: 'Zet uit en zoek',
+        action: () => {
+          updateSettings({ closeToHome: false });
+          runSearch();
+        },
+      };
     case 'OVER_QUERY_LIMIT':
-      return 'De limiet voor kaartaanvragen is bereikt. Probeer het later opnieuw.';
+      return { icon: 'alert', title: 'Even te veel aanvragen', body: 'De limiet voor kaartaanvragen is bereikt. Probeer het later opnieuw.', cta: 'Terug', action: closeFlow };
     case 'REQUEST_DENIED':
-      return 'Google heeft de kaartsleutel geweigerd. Controleer de API-key in de instellingen.';
+      return { icon: 'alert', title: 'Kaartsleutel geweigerd', body: 'Google weigert de kaartsleutel van Looply. Dit los je op in de Google Cloud Console.', cta: 'Terug', action: closeFlow };
     default:
-      return 'Er ging iets mis bij het zoeken naar routes. Probeer het opnieuw.';
+      return { icon: 'alert', title: 'Er ging iets mis', body: 'Het zoeken naar rondjes lukte niet. Probeer het opnieuw.', cta: 'Opnieuw', action: retry };
   }
 }
 
-function handleSelectRoute(id) {
-  state.selectedRouteId = id;
-  render();
-}
+// ---------- Results and saved routes ----------
 
-function handleSave(route) {
-  try {
-    saveRoute(route);
-  } catch (err) {
-    console.error('Saving the route failed', err);
-    showToast('Opslaan lukte niet. In een privévenster of met een volle opslag kan Safari niets bewaren.', { durationMs: 8000 });
-    return;
+function ensureMap() {
+  if (!routeMap && google) {
+    try {
+      routeMap = createRouteMap(google);
+    } catch (err) {
+      console.error('Map failed', err);
+    }
   }
-  render();
+  return routeMap;
 }
 
-function handleOpenMaps(route) {
-  window.open(googleMapsDirectionsUrl(route), '_blank');
+function posterContext(routes, extra) {
+  const t = now();
+  const spot = routes[0]?.start ?? skySpot();
+  return {
+    routes,
+    now: t,
+    sun: sunAt(t, spot),
+    weather: weatherNow(t),
+    isSaved: (r) => listRoutes().some((s) => s.id === r.id),
+    onSave: toggleSave,
+    onOpenMaps: (r) => window.open(googleMapsDirectionsUrl(r), '_blank'),
+    onOpenMap: (r) => openMapSheet(r, { map: routeMap, onClose: () => flowView?.remap?.() }),
+    onSuggest: (km) => {
+      updateSettings({ distances: { [settings.mode]: km } });
+      closeFlow();
+    },
+    map: ensureMap(),
+    ...extra,
+  };
 }
 
-function handleDelete(route) {
+function showResults(fresh) {
+  if (!state.routes.length) return;
+  const view = renderPosters(
+    posterContext(state.routes, {
+      page: fresh ? 0 : state.page,
+      onBack: closeFlow,
+      onAgain: () => runSearch({ again: true }),
+      onOtherDistance: closeFlow,
+      onPage: (i) => (state.page = i),
+      showHint: fresh && settings.resultsHints < 2,
+      onHintShown: () => updateSettings({ resultsHints: settings.resultsHints + 1 }),
+    })
+  );
+  setFlow('results', view);
+}
+
+function showSavedRoute(route) {
+  const view = renderPosters(
+    posterContext([route], {
+      single: true,
+      onBack: closeFlow,
+      onMore: () => {
+        const sheet = showSheet({
+          label: 'Opties',
+          content: [
+            sheetHead('Opties'),
+            h(
+              'button',
+              {
+                class: 'srow',
+                type: 'button',
+                onclick: () => {
+                  sheet.close();
+                  removeSaved(route);
+                  closeFlow();
+                },
+              },
+              h('span', { class: 'srow__ic danger' }, icon('x')),
+              h('span', { class: 'srow__text danger' }, 'Verwijder uit Bewaard')
+            ),
+            h('p', { class: 't-foot', style: 'margin:10px 8px 0' }, 'Later komen hier ook Hernoemen, Notitie en GPX-export.'),
+          ],
+        });
+      },
+    })
+  );
+  setFlow('saved-route', view);
+}
+
+function removeSaved(route) {
   try {
     deleteRoute(route.id);
   } catch (err) {
@@ -435,24 +653,49 @@ function handleDelete(route) {
     showToast('Verwijderen lukte niet. Probeer het opnieuw.');
     return;
   }
-  render();
-}
-
-function openSavedDetail(route) {
-  state.tab = 'saved';
-  state.savedScreen = 'detail';
-  state.savedRoute = route;
-  render();
-}
-
-function openStartPicker() {
-  openStartSheet({
-    mode: useGoogle ? 'google' : 'mock',
-    google: useGoogle ? window.google : null,
-    home: settings.home,
-    onHome: (home) => setStart({ lat: home.lat, lng: home.lng }, 'Thuis'),
-    onUseCurrentLocation: resolveCurrentLocation,
-    onCoords: ({ latLng, label }) => setStart(latLng, label),
-    onPlace: ({ latLng, label }) => setStart(latLng, label),
+  showToast('Uit Bewaard gehaald', {
+    undo: () => {
+      trySave(route);
+      if (!state.flow) renderTab();
+      flowView?.refreshSaved?.();
+    },
   });
 }
+
+function trySave(route) {
+  if (proto.fail === 'save') throw new Error('Nagebootste fout bij bewaren');
+  saveRoute(route);
+}
+
+function toggleSave(route) {
+  if (listRoutes().some((s) => s.id === route.id)) {
+    removeSaved(route);
+  } else {
+    try {
+      trySave(route);
+    } catch (err) {
+      console.error('Saving the route failed', err);
+      showToast('Bewaren lukt niet. Staat Safari in privémodus?');
+    }
+  }
+  flowView?.refreshSaved?.();
+}
+
+// ---------- Test panel ----------
+
+function openProto() {
+  openProtoPanel(proto, {
+    onChange: (key, value) => {
+      proto[key] = value;
+      render();
+    },
+    onWelcome: () => {
+      selectTab('today');
+      openWelcome();
+    },
+    onHint: () => updateSettings({ resultsHints: 0 }),
+  });
+}
+
+// Start once every module-level binding above exists.
+init();

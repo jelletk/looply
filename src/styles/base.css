@@ -1,4 +1,4 @@
-/* Reset and base element styles. */
+/* Reset, the sky and the type scale. */
 
 * {
   box-sizing: border-box;
@@ -8,80 +8,117 @@
 html,
 body {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: var(--font-family);
-  font-weight: var(--weight-regular);
-  font-size: 17px;
-  line-height: 1.35;
+  background: var(--sky-mid);
+  color: var(--ink);
+  font: 400 17px/1.41 var(--font-text);
+  letter-spacing: -0.024em;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
-}
-
-#app {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 [hidden] {
   display: none !important;
 }
 
-h1,
-h2,
-h3,
-p {
+h1, h2, h3, p {
   margin: 0;
 }
 
 button {
-  font-family: inherit;
-  font-size: inherit;
-  border: none;
-  background: none;
+  font: inherit;
   color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
   cursor: pointer;
-  transition: transform 0.1s ease;
+  letter-spacing: inherit;
+  text-align: inherit;
 }
 
-button:active {
-  transform: scale(0.95);
+button:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+button:active:not([aria-disabled="true"]) {
+  transform: scale(0.97);
+  transition: transform 0.1s;
+}
+
+svg {
+  display: block;
 }
 
 input {
-  font-family: inherit;
-  font-size: inherit;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
-.large-title {
-  font-size: 34px;
-  font-weight: var(--weight-bold);
-  letter-spacing: -0.4px;
-  padding: calc(var(--safe-top) + var(--space-4)) var(--space-4) var(--space-3);
-}
+/* ---------- Sky ---------- */
 
-.map-layer {
-  position: absolute;
+.sky {
+  position: fixed;
   inset: 0;
+  background: radial-gradient(circle 280px at var(--sun-x) var(--sun-y), color-mix(in srgb, var(--sun) var(--sun-a), transparent), transparent 70%),
+    linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-low) 100%);
 }
 
-.screen-layer {
-  position: absolute;
+/* The previous sky, fading out after a phase change. */
+.sky--leaving {
+  transition: opacity 0.9s ease-in-out;
+}
+
+.stars {
+  position: fixed;
   inset: 0;
+  opacity: var(--stars);
+  transition: opacity 0.9s;
   pointer-events: none;
 }
 
-.screen-layer > * {
-  pointer-events: auto;
+#app {
+  position: fixed;
+  inset: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow: hidden;
 }
 
-.screen-layer--saved {
-  background: var(--color-bg);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+/* ---------- Type ---------- */
+
+.t-display { font: 800 104px/0.92 var(--font-rounded); letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+.t-title1 { font: 700 34px/1.06 var(--font-rounded); letter-spacing: -0.02em; text-wrap: balance; }
+.t-title2 { font: 700 32px/1.06 var(--font-rounded); letter-spacing: -0.02em; text-wrap: balance; }
+.t-title3 { font: 700 24px/1.15 var(--font-rounded); letter-spacing: -0.015em; }
+.t-unit { font: 700 20px/1.2 var(--font-rounded); letter-spacing: -0.01em; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.t-callout { font-size: 15px; line-height: 1.33; letter-spacing: -0.016em; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.t-callout b { color: var(--ink); font-weight: 600; }
+.t-body { font-size: 17px; line-height: 1.41; }
+.t-foot { font-size: 13px; line-height: 1.38; color: var(--ink-2); }
+.t-foot--strong { font-weight: 600; }
+.t-cap { font: 600 12px/1.33 var(--font-rounded); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

@@ -33,3 +33,7 @@ export {
   STORAGE_KEY,
 } from './storage.js';
 export { googleMapsDirectionsUrl } from './mapsUrl.js';
+export { sunTimes, skyPhase } from './sun.js';
+export { createWeatherSource, parseWeather } from './weather.js';
+export { adviceLine, sunLine, weatherLine, lineText, clockTime, timeSpan } from './advice.js';
+export { homeProfile, routeTitle, windWord } from './profile.js';
