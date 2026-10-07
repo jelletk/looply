@@ -131,3 +131,18 @@ describe('two-loop errors and overlap across starts', () => {
     expect(routeOverlap(fromNorth, fromSouth)).toBeCloseTo(routeOverlap(fromSouth, fromNorth), 6);
   });
 });
+
+describe('settings: map strength', () => {
+  function memory() {
+    const data = {};
+    return { getItem: (k) => data[k] ?? null, setItem: (k, v) => (data[k] = String(v)) };
+  }
+  it('defaults to normaal, keeps a valid choice and ignores anything else', () => {
+    const storage = memory();
+    const store = createSettingsStore(storage);
+    expect(store.load().mapStrength).toBe('normaal');
+    expect(store.update({ mapStrength: 'duidelijk' }).mapStrength).toBe('duidelijk');
+    storage.setItem('looply.settings.v1', '{"mapStrength":"heel fel"}');
+    expect(createSettingsStore(storage).load().mapStrength).toBe('normaal');
+  });
+});

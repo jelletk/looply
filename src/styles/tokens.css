@@ -46,6 +46,9 @@
   /* Map under the posters: a dark map for the deep skies (see components.css) */
   --map-opacity: 0.42;
   --map-filter: invert(1) hue-rotate(180deg) saturate(0.4) brightness(0.9);
+  /* Instellingen › Kaart: multiplies --map-opacity and widens the clear centre of the fade */
+  --map-strength: 1.45;
+  --map-clear: 68%;
 
   /* Motion */
   --ease: cubic-bezier(0.2, 0.9, 0.25, 1);
@@ -125,3 +128,7 @@
 @media (prefers-reduced-transparency: reduce) {
   :root, :root[data-phase] { --glass-tint: 92%; --glass-strong: 96%; }
 }
+
+/* Instellingen › Kaart onder de route (data-map on <html>; "normaal" is the :root default) */
+:root[data-map="subtiel"] { --map-strength: 1; --map-clear: 62%; }
+:root[data-map="duidelijk"] { --map-strength: 1.9; --map-clear: 80%; }

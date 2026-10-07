@@ -57,6 +57,7 @@ const state = {
 const proto = { ...PROTO_DEFAULTS };
 const settingsStore = openSettingsStore();
 let settings = settingsStore.load();
+document.documentElement.dataset.map = settings.mapStrength; // Instellingen › Kaart (tokens.css)
 setSpeeds(settings.speeds);
 
 let provider = createMockProvider();
@@ -263,6 +264,12 @@ function settingsView() {
       renderTab();
       // The page is rebuilt: put focus back on the button the user was on (VoiceOver would lose it).
       page.querySelector(`[data-step="${label}"]`)?.focus();
+    },
+    onMapStrength: (value) => {
+      updateSettings({ mapStrength: value });
+      document.documentElement.dataset.map = settings.mapStrength;
+      renderTab();
+      page.querySelector(`[data-choice="${value}"]`)?.focus();
     },
     onProto: (on) => {
       updateSettings({ showProto: on });

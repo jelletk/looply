@@ -18,12 +18,18 @@ export function stepSpeed(row, kmh, direction) {
   return Math.min(row.max, Math.max(row.min, next));
 }
 
+const MAP_CHOICES = [
+  ['subtiel', 'Subtiel'],
+  ['normaal', 'Normaal'],
+  ['duidelijk', 'Duidelijk'],
+];
+
 const LOCATION_STATUS = { granted: 'Toegestaan', denied: 'Niet toegestaan', prompt: 'Nog niet gevraagd' };
 
 /**
  * Instellingen: Thuis, Jouw tempo, Locatie, Testen, Over.
  * ctx: settings, locationState, version, confirmingHomeDelete, onEditHome, onAskDeleteHome,
- *      onDeleteHome, onCancelDeleteHome, onSpeed(mode, kmh, buttonLabel), onProto(bool)
+ *      onDeleteHome, onCancelDeleteHome, onSpeed(mode, kmh, buttonLabel), onMapStrength(value), onProto(bool)
  */
 export function renderSettings(ctx) {
   const { settings } = ctx;
@@ -97,6 +103,28 @@ export function renderSettings(ctx) {
     h('h1', { class: 't-title1 list-title', tabindex: '-1' }, 'Instellingen'),
     section('Thuis', homeRows, 'Thuis staat bovenaan in de startpunt-kiezer. Het blijft alleen op deze telefoon.'),
     section('Jouw tempo', paceRows, 'Hiermee rekent Looply uit hoe laat je terug bent.'),
+    section(
+      'Kaart onder de route',
+      h(
+        'div',
+        { class: 'choices', role: 'radiogroup', 'aria-label': 'Kaart onder de route' },
+        MAP_CHOICES.map(([value, label]) =>
+          h(
+            'button',
+            {
+              class: 'choice',
+              type: 'button',
+              role: 'radio',
+              'aria-checked': String(settings.mapStrength === value),
+              'data-choice': value,
+              onclick: () => settings.mapStrength !== value && ctx.onMapStrength(value),
+            },
+            label
+          )
+        )
+      ),
+      'Hoe duidelijk de straten onder een rondje te zien zijn.'
+    ),
     section(
       'Locatie',
       h('div', { class: 'row' }, h('span', { class: 'row__grow' }, 'Locatietoegang'), h('span', { class: 't-callout' }, LOCATION_STATUS[ctx.locationState] ?? 'Onbekend')),

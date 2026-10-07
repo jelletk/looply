@@ -12,7 +12,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   showProto: false, // test panel for time, weather and failures (Instellingen › Testen)
   resultsHints: 0, // times the "veeg omhoog" hint was shown; it shows twice
   homeAsked: false, // "Is dit thuis?" was offered once
+  mapStrength: 'normaal', // how clearly the map shows under a poster: subtiel | normaal | duidelijk
 });
+
+export const MAP_STRENGTHS = ['subtiel', 'normaal', 'duidelijk'];
 
 const DISTANCE_LIMITS = { walk: [1, 20], run: [1, 30], bike: [5, 100] };
 
@@ -43,6 +46,7 @@ function sanitize(raw) {
     showProto: s.showProto === true,
     resultsHints: Number.isInteger(hints) && hints > 0 ? hints : 0,
     homeAsked: s.homeAsked === true,
+    mapStrength: MAP_STRENGTHS.includes(s.mapStrength) ? s.mapStrength : DEFAULT_SETTINGS.mapStrength,
   };
 }
 
