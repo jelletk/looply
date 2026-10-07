@@ -12,12 +12,19 @@ const MIN = 60 * 1000;
 
 // ---------- Loading ----------
 
-/** "Rondjes zoeken" with a ring that follows the progress. → element with .progress(done, total) */
+/**
+ * "Rondjes zoeken" with a ring that keeps turning, the sun at the head of its arc. It shows no
+ * fraction on purpose: the search adds rounds as it goes (8, then 16, then 24 candidates), so a
+ * "done of total" ring filled up and then jumped back. The text counts the routes looked at.
+ * → element with .progress(done)
+ */
 export function renderLoading({ again, onCancel }) {
   const R = 74;
   const C = 2 * Math.PI * R;
-  const arc = svg('circle', { class: 'ring__arc', cx: 80, cy: 80, r: R, transform: 'rotate(-90 80 80)', 'stroke-dasharray': C, 'stroke-dashoffset': C });
-  const dot = svg('circle', { r: 6, fill: 'var(--sun)', stroke: 'var(--ink)', 'stroke-width': 2, cx: 80, cy: 80 - R });
+  const SPAN = 0.3; // share of the circle the arc covers
+  const head = -Math.PI / 2 + SPAN * 2 * Math.PI; // the arc starts at the top and runs clockwise
+  const arc = svg('circle', { class: 'ring__arc', cx: 80, cy: 80, r: R, transform: 'rotate(-90 80 80)', 'stroke-dasharray': `${SPAN * C} ${C}` });
+  const dot = svg('circle', { r: 6, fill: 'var(--sun)', stroke: 'var(--ink)', 'stroke-width': 2, cx: 80 + R * Math.cos(head), cy: 80 + R * Math.sin(head) });
   const label = h('div', { class: 't-callout', 'aria-live': 'polite' }, 'Rondjes zoeken…');
   const slow = h('div', { class: 't-foot', hidden: true }, 'Dit duurt meestal 5 tot 20 seconden.');
   const timer = setTimeout(() => (slow.hidden = false), 8000);
@@ -34,14 +41,11 @@ export function renderLoading({ again, onCancel }) {
       h('button', { class: 'btn btn--secondary glass', type: 'button', style: 'min-height:48px;margin-top:10px', onclick: () => { clearTimeout(timer); onCancel(); } }, 'Annuleren')
     )
   );
-  el.progress = (done, total) => {
-    if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return;
-    const f = Math.min(1, done / total);
-    arc.setAttribute('stroke-dashoffset', String(C * (1 - f)));
-    const a = -Math.PI / 2 + f * Math.PI * 2;
-    dot.setAttribute('cx', String(80 + R * Math.cos(a)));
-    dot.setAttribute('cy', String(80 + R * Math.sin(a)));
-    label.textContent = `Route ${Math.min(done, total)} van ${total}`;
+  let shown = 0;
+  el.progress = (done) => {
+    if (!Number.isFinite(done) || done <= shown) return; // only ever counts up
+    shown = done;
+    label.textContent = done === 1 ? '1 route bekeken' : `${done} routes bekeken`;
   };
   el.dispose = () => clearTimeout(timer);
   return el;
@@ -135,7 +139,7 @@ function poster(route, i, ctx) {
     near ? h('div', { class: 't-foot', style: 'margin-top:8px' }, 'Google Maps volgt de lussen bij benadering.') : null,
     !ctx.single && i === n - 1 && n < 5 ? h('div', { class: 't-foot', style: 'margin-top:8px' }, 'Meer rondjes vonden we niet vanaf hier.') : null
   );
-  return { el, slot, box: shape.box };
+  return { el, slot, box: shape.box, setView: shape.setView };
 }
 
 /**
@@ -209,7 +213,7 @@ export function renderPosters(ctx) {
     const p = posters[page];
     if (p) {
       p.el.classList.add('poster--seen');
-      ctx.map?.showUnder(p.slot, p.box);
+      ctx.map?.showUnder(p.slot, p.box, p.setView);
     }
   }
 
@@ -283,7 +287,7 @@ export function renderPosters(ctx) {
   el.refreshSaved = refreshSaved;
   el.remap = () => {
     const p = posters[page];
-    if (p) ctx.map?.showUnder(p.slot, p.box);
+    if (p) ctx.map?.showUnder(p.slot, p.box, p.setView);
   };
   el.dispose = () => {
     clearTimeout(settle);

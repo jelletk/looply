@@ -28,24 +28,38 @@ export function routeShape(route, { draw = false, pad = 0.1, dot = true, classNa
     line,
     sun
   );
+  let view = box; // what the viewBox shows now: the route's own frame, or the map's actual view
 
   // User units per screen pixel for the current size ("meet": the tighter side decides).
+  let size = [340, 300]; // until the real size is known
   const fit = (width, height) => {
-    const unit = 1 / Math.min(width / box.w, height / box.h);
+    size = [width, height];
+    const unit = 1 / Math.min(width / view.w, height / view.h);
     if (draw) line.setAttribute('stroke-width', String(px * unit));
     if (sun) {
       sun.setAttribute('r', String(6 * unit));
       sun.setAttribute('stroke-width', String(2 * unit));
     }
   };
-  fit(340, 300); // until the real size is known
+  fit(...size);
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       if (width && height) fit(width, height);
     }).observe(el);
   }
-  return { el, box };
+
+  /**
+   * Show exactly `next` (Web Mercator units), e.g. the view the map under the shape really ended
+   * up with. The map may round the zoom (iPhone Safari) or shift the centre; following the map
+   * keeps line and streets on top of each other whatever it did.
+   */
+  function setView(next) {
+    view = next;
+    el.setAttribute('viewBox', `${next.x} ${next.y} ${next.w} ${next.h}`);
+    fit(...size);
+  }
+  return { el, box, setView };
 }
 
 /** Small route thumbnail for lists: thin line, no glow, no dot. */

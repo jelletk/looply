@@ -32,6 +32,18 @@ export function shapeFrame(path, pad = 0.1) {
 }
 
 /**
+ * What a map at `center` and `zoom` shows in a width × height element, as a box in the same
+ * units as shapeFrame: the inverse of viewForBox. → { x, y, w, h }
+ */
+export function boxForView(center, zoom, width, height) {
+  const c = project(center);
+  const scale = 2 ** zoom;
+  const w = width / scale;
+  const h = height / scale;
+  return { x: c.x - w / 2, y: c.y - h / 2, w, h };
+}
+
+/**
  * Map view that shows `box` like an SVG with preserveAspectRatio "xMidYMid meet" in a
  * width × height element: → { center: { lat, lng }, zoom } (fractional zoom).
  */

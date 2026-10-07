@@ -490,7 +490,7 @@ async function fakeFailure(code, loading, signal) {
   for (let i = 1; i <= 8; i++) {
     await new Promise((r) => setTimeout(r, 200));
     if (signal.aborted) throw Object.assign(new Error('aborted'), { code: 'ABORTED' });
-    loading.progress(i, 8);
+    loading.progress(i);
   }
   throw Object.assign(new Error('Nagebootste fout'), { code });
 }
@@ -532,7 +532,7 @@ async function runSearch({ again = false } = {}) {
       count: 8, // more candidates than the 5 we need, so dedupe rarely drops us below 5
       toleranceKm: defaultToleranceKm(mode),
       maxProviderCalls: maxProviderCallsFor(km),
-      onProgress: (info) => controller === searchController && loading.progress(info?.done, info?.total),
+      onProgress: (info) => controller === searchController && loading.progress(info?.done),
       signal: controller.signal,
       avoidPaths,
     });

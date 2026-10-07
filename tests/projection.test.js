@@ -43,3 +43,22 @@ describe('shapeFrame and viewForBox', () => {
     expect(view.zoom).toBeLessThan(17);
   });
 });
+
+describe('boxForView', () => {
+  it('is the inverse of viewForBox, also for a box with another aspect ratio', async () => {
+    const { boxForView, viewForBox, shapeFrame } = await import('../src/ui/projection.js');
+    const { box } = shapeFrame([{ lat: 52.08, lng: 5.12 }, { lat: 52.1, lng: 5.15 }], 0.1);
+    const v = viewForBox(box, 362, 446);
+    const back = boxForView(v.center, v.zoom, 362, 446);
+    // Same centre; the box fits inside the view ("meet") and touches it on one side.
+    expect(back.x + back.w / 2).toBeCloseTo(box.x + box.w / 2, 9);
+    expect(back.y + back.h / 2).toBeCloseTo(box.y + box.h / 2, 9);
+    expect(Math.max(box.w / back.w, box.h / back.h)).toBeCloseTo(1, 9);
+  });
+
+  it('shows more ground when the map rounds the zoom down', async () => {
+    const { boxForView } = await import('../src/ui/projection.js');
+    const c = { lat: 52.09, lng: 5.12 };
+    expect(boxForView(c, 14, 300, 300).w).toBeCloseTo(boxForView(c, 14.6, 300, 300).w * 2 ** 0.6, 9);
+  });
+});

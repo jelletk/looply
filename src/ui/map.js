@@ -2,7 +2,7 @@
 // under the route shape of the poster in view (subtle, still, no labels), or into the map sheet
 // (interactive, with street names and the route drawn on it).
 
-import { viewForBox } from './projection.js';
+import { viewForBox, boxForView } from './projection.js';
 
 const QUIET = [
   { elementType: 'labels', stylers: [{ visibility: 'off' }] },
@@ -40,10 +40,12 @@ export function createRouteMap(google) {
   }
 
   /**
-   * Show the map in `slot` (a .shape__map element inside a poster shape), aligned with the SVG
-   * shape drawn from the same `box`. The slot fades in once the tiles are there.
+   * Show the map in `slot` (a .shape__map element inside a poster shape) under the SVG shape
+   * drawn from `box`. Once the map has settled, `onView(viewBox)` gets the view it really shows,
+   * so the shape can follow it: iPhone Safari rounds fractional zooms, and then a shape drawn
+   * for the requested zoom no longer lies on the streets. The slot fades in after that.
    */
-  function showUnder(slot, box) {
+  function showUnder(slot, box, onView) {
     const mine = ++token;
     clearDrawing();
     if (el.parentElement && el.parentElement !== slot) el.parentElement.classList.remove('shape__map--on');
@@ -51,10 +53,29 @@ export function createRouteMap(google) {
     map.setOptions({ gestureHandling: 'none', styles: QUIET });
     requestAnimationFrame(() => {
       if (mine !== token || !slot.clientWidth) return;
-      const view = viewForBox(box, slot.clientWidth, slot.clientHeight);
-      map.setCenter(view.center);
-      map.setZoom(view.zoom);
-      const show = () => mine === token && slot.classList.add('shape__map--on');
+      const width = slot.clientWidth;
+      const height = slot.clientHeight;
+      const wanted = viewForBox(box, width, height);
+      map.setCenter(wanted.center);
+      map.setZoom(wanted.zoom);
+      let steppedOut = false;
+      // Align the shape with what the map reports now. Safe to call again: right away (zoom and
+      // centre are known at once), and once more when the map has settled, in case it snapped late.
+      const align = () => {
+        if (mine !== token) return;
+        // Rounded up: the route would run off the shape. One whole level out instead.
+        if (!steppedOut && map.getZoom() > wanted.zoom + 0.01) {
+          steppedOut = true;
+          map.setZoom(Math.floor(wanted.zoom));
+        }
+        const c = map.getCenter();
+        onView?.(boxForView({ lat: c.lat(), lng: c.lng() }, map.getZoom(), width, height));
+      };
+      const show = () => {
+        align();
+        if (mine === token) slot.classList.add('shape__map--on');
+      };
+      align();
       google.maps.event.addListenerOnce(map, 'idle', show);
       setTimeout(show, 1500); // same view as before: Google may not fire 'idle' again
     });

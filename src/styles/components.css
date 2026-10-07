@@ -197,9 +197,11 @@
 .flow { position: absolute; inset: 0; z-index: 30; }
 .center { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 28px; text-align: center; }
 .stack { display: grid; justify-items: center; gap: 10px; max-width: 340px; }
-.ring { width: 160px; height: 160px; margin-bottom: 8px; overflow: visible; }
+.ring { width: 160px; height: 160px; margin-bottom: 8px; overflow: visible; animation: ring-spin 1.6s linear infinite; }
+@keyframes ring-spin { to { transform: rotate(360deg); } } /* rotates the whole <svg>: reliable in WebKit */
 .ring__track { fill: none; stroke: color-mix(in srgb, var(--ink) 20%, transparent); stroke-width: 3; }
-.ring__arc { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 0.3s linear; }
+.ring__arc { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
 .err-icon { width: 40px; height: 40px; color: var(--ink); }
 .err-icon svg { width: 40px; height: 40px; }
 .errcard { border-radius: 24px; padding: 24px; }
