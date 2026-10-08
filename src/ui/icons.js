@@ -5,9 +5,10 @@ const s = (d) => `<svg viewBox="0 0 24 24" fill="none">${d}</svg>`;
 const line = 'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
 
 export const ICONS = {
-  walk: s(`<circle cx="13" cy="4.5" r="1.7" fill="currentColor"/><path d="M10.5 21l1.2-5.4-2.4-2 .7-4.4 3.3-1.6 2.6 2.7 3 1.1M9 21l2-4.2M9.5 10.4 6 12" ${line}/>`),
-  run: s(`<circle cx="14.5" cy="4.5" r="1.7" fill="currentColor"/><path d="M8 9.5 12 8l2 2.6 3.5 1-1 2.7-3-.6-1 3.6 2.5 3.8M6 14l3.3-1.6L11 15l-3 3.6" ${line}/>`),
-  bike: s(`<circle cx="6" cy="17" r="3" stroke="currentColor" stroke-width="1.9"/><circle cx="18" cy="17" r="3" stroke="currentColor" stroke-width="1.9"/><path d="M6 17l4-7h4l3 7M10 10 9 7h3" ${line}/>`),
+  // Walk, run and bike: Tabler Icons (MIT, tabler.io/icons), on our stroke width.
+  walk: s(`<circle cx="13" cy="4" r="1.8" fill="currentColor"/><path d="M7 21l3-4M16 21l-2-4-3-3 1-6M6 12l2-3 4-1 3 3 3 1" ${line}/>`),
+  run: s(`<circle cx="13" cy="4" r="1.8" fill="currentColor"/><path d="M4 17l5 1 .75-1.5M15 21v-4l-4-3 1-6M7 12V9l5-1 3 3 3 1" ${line}/>`),
+  bike: s(`<circle cx="5" cy="18" r="3" ${line}/><circle cx="19" cy="18" r="3" ${line}/><circle cx="17" cy="5" r="1.8" fill="currentColor"/><path d="M12 19v-4l-3-3 5-4 2 3h3" ${line}/>`),
   house: s('<path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1v-7.5Z" fill="currentColor"/>'),
   loc: s('<path d="M20.5 3.5 3.8 10.4c-.8.3-.7 1.4.1 1.6l6.6 1.5 1.5 6.6c.2.8 1.3.9 1.6.1L20.5 3.5Z" fill="currentColor"/>'),
   locslash: s(`<path d="M20.5 3.5 3.8 10.4c-.8.3-.7 1.4.1 1.6l6.6 1.5 1.5 6.6c.2.8 1.3.9 1.6.1L20.5 3.5ZM3 3l18 18" ${line}/>`),

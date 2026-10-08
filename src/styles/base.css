@@ -11,6 +11,17 @@ body {
   overflow: hidden;
 }
 
+/* iOS 26/27 home-screen app with a translucent status bar: 100%, dvh and innerHeight come up short by
+   the status bar (812 of 874 pt) and clip everything below. Only lvh reports the full screen, so the
+   root and every full-screen layer take --app-h (index.html marks standalone). */
+:root[data-standalone] {
+  --app-h: 100lvh;
+}
+:root[data-standalone],
+:root[data-standalone] body {
+  height: var(--app-h);
+}
+
 /* Safari tints its bars from the page background: the colour at the bottom of the sky. */
 html {
   background: var(--sky-low);

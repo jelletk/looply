@@ -388,7 +388,7 @@
 .scrim {
   position: fixed;
   inset: 0 0 auto;
-  height: var(--app-h, 100%); /* see index.html */
+  height: var(--app-h, 100%); /* see base.css */
   z-index: 60;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
