@@ -22,6 +22,24 @@
         }
       } catch (e) {}
     </script>
+    <script>
+      // iOS 26 home-screen bug: in a standalone web app, viewport-sized fixed layers stop short of the
+      // screen bottom by the status-bar height, leaving a bare strip under the tab bar. Size them to
+      // the screen instead (--app-h, base.css). Only for that case: a gap up to 100px in portrait.
+      (function () {
+        var r = document.documentElement;
+        function fit() {
+          var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+          var portrait = matchMedia('(orientation: portrait)').matches;
+          var sh = Math.max(screen.width, screen.height);
+          var gap = sh - Math.min(innerHeight, r.clientHeight); // clientHeight: the box fixed layers fill
+          if (standalone && portrait && gap > 0 && gap <= 100) r.style.setProperty('--app-h', sh + 'px');
+          else r.style.removeProperty('--app-h');
+        }
+        fit();
+        addEventListener('resize', fit);
+      })();
+    </script>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg" />

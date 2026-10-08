@@ -74,7 +74,8 @@ input {
 
 .sky {
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto;
+  height: var(--app-h, 100%);
   background: radial-gradient(circle 280px at var(--sun-x) var(--sun-y), color-mix(in srgb, var(--sun) var(--sun-a), transparent), transparent 70%),
     linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-low) 100%);
 }
@@ -86,7 +87,8 @@ input {
 
 .stars {
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto;
+  height: var(--app-h, 100%);
   opacity: var(--stars);
   transition: opacity 0.9s;
   pointer-events: none;
@@ -94,7 +96,8 @@ input {
 
 #app {
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto;
+  height: var(--app-h, 100%);
   max-width: 480px;
   margin: 0 auto;
   overflow: hidden;
